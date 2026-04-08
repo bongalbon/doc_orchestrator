@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI-Doc-Orchestrator</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body data-theme="dark">
+  <div id="toast-root" class="toast-root"></div>
+  <div id="confirm-modal" class="modal-backdrop hidden">
+    <div class="modal panel">
+      <h3 id="confirm-title">Confirmer l'action</h3>
+      <p id="confirm-message" class="muted">Êtes-vous sûr ?</p>
+      <div class="row">
+        <button id="confirm-cancel-btn" class="btn btn-ghost" type="button">Annuler</button>
+        <button id="confirm-ok-btn" class="btn btn-danger" type="button">Confirmer</button>
+      </div>
+    </div>
+  </div>
+  <div id="archive-detail-modal" class="modal-backdrop hidden">
+    <div class="modal panel modal-lg">
+      <h3 id="archive-detail-title">Détail archive</h3>
+      <div id="archive-detail-meta" class="muted"></div>
+      <div id="archive-detail-rendered" class="markdown-render"></div>
+      <div class="row">
+        <button id="archive-detail-export-pdf" class="btn btn-secondary" type="button">Export PDF</button>
+        <button id="archive-detail-export-docx" class="btn btn-secondary" type="button">Export DOCX</button>
+        <button id="archive-detail-close" class="btn btn-ghost" type="button">Fermer</button>
+      </div>
+    </div>
+  </div>
+  <div id="new-agent-modal" class="modal-backdrop hidden">
+    <div class="modal panel">
+      <h3>Créer un nouvel agent</h3>
+      <div class="grid2">
+        <input id="new-agent-name" placeholder="Nom de l'agent" />
+        <input id="new-agent-icon" placeholder="Icône" value="🧠" />
+      </div>
+      <input id="new-agent-desc" placeholder="Description" />
+      <textarea id="new-agent-prompt" rows="5" placeholder="System prompt"></textarea>
+      <input id="new-agent-types" placeholder="Types docs: Lettre, Rapport, Note" />
+      <div class="row">
+        <button id="close-agent-modal-btn" class="btn btn-ghost" type="button">Fermer</button>
+        <button id="create-agent-btn" class="btn btn-secondary" type="button">Créer agent</button>
+      </div>
+    </div>
+  </div>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <button id="sidebar-toggle-btn" class="btn btn-ghost" type="button">⇔</button>
+        <div>
+          <h1>🤖 OAI-DOC</h1>
+          <p>Intelligence Documentaire</p>
+        </div>
+      </div>
+      <nav id="nav">
+        <button class="nav-btn active" data-page="dashboard"><span class="nav-emoji">🏠</span><span class="nav-label">Dashboard</span></button>
+        <button class="nav-btn" data-page="ingestion"><span class="nav-emoji">📥</span><span class="nav-label">Ingestion</span></button>
+        <button class="nav-btn" data-page="studio"><span class="nav-emoji">✍️</span><span class="nav-label">Studio</span></button>
+        <button class="nav-btn" data-page="archives"><span class="nav-emoji">📁</span><span class="nav-label">Archives</span></button>
+        <button class="nav-btn" data-page="settings"><span class="nav-emoji">⚙️</span><span class="nav-label">Paramètres</span></button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <header class="topbar panel">
+        <div>
+          <strong>AI-Doc-Orchestrator</strong>
+          <div class="muted">Studio documentaire assisté par IA</div>
+        </div>
+        <div class="service-badges">
+          <button id="theme-toggle-btn" class="btn btn-ghost" type="button">🌙 Sombre</button>
+          <div id="service-badges" class="service-badges"></div>
+        </div>
+      </header>
+      <section id="dashboard" class="page active">
+        <div class="page-head"><h2>Dashboard</h2></div>
+        <div id="stats-cards" class="cards"></div>
+      </section>
+
+      <section id="ingestion" class="page">
+        <div class="page-head"><h2>Ingestion</h2></div>
+        <div class="panel">
+          <div id="ingestion-steps" class="steps"></div>
+          <input id="upload-input" type="file" multiple />
+          <button id="upload-btn">Intégrer à la base</button>
+          <div id="upload-result" class="muted"></div>
+        </div>
+        <div id="documents-list" class="list"></div>
+      </section>
+
+      <section id="studio" class="page">
+        <div class="page-head">
+          <div class="page-head-bar">
+            <h2>Studio</h2>
+            <button id="toggle-agent-form-btn" class="btn btn-secondary" type="button">Créer ou ajouter un nouvel agent</button>
+          </div>
+        </div>
+        <div class="split">
+          <div class="panel">
+            <div id="generation-steps" class="steps"></div>
+            <label>Agent</label>
+            <select id="agent-select"></select>
+
+            <label>Format</label>
+            <select id="doc-type-select"></select>
+
+            <label>Modèle</label>
+            <select id="model-select"></select>
+
+            <label>Titre</label>
+            <input id="title-input" />
+
+            <label>Objectif</label>
+            <textarea id="objective-input" rows="6"></textarea>
+
+            <label>Instructions additionnelles</label>
+            <textarea id="instructions-input" rows="4"></textarea>
+
+            <div class="row">
+              <label><input type="checkbox" id="rag-toggle" checked /> Utiliser RAG</label>
+              <input id="rag-k" type="number" min="1" max="10" value="5" />
+            </div>
+
+            <button id="generate-btn">Générer</button>
+          </div>
+
+          <div class="panel">
+            <h3>Preview éditable</h3>
+            <div class="row">
+              <button id="preview-render-btn" class="btn btn-secondary" type="button">Vue normale</button>
+              <button id="preview-edit-btn" class="btn btn-ghost" type="button">Mode édition</button>
+            </div>
+            <div id="preview-rendered" class="markdown-render"></div>
+            <textarea id="preview-editor" rows="22" class="hidden-block"></textarea>
+            <div id="editor-metrics" class="muted">0 mots • 0 caractères</div>
+            <div class="row">
+              <select id="draft-history-select"></select>
+              <button id="draft-restore-btn" class="btn btn-ghost" type="button">Restaurer</button>
+            </div>
+            <div class="row">
+              <button id="save-edited-archive-btn">Sauver en archive</button>
+              <button id="download-pdf-btn">Export PDF</button>
+              <button id="download-docx-btn">Export DOCX</button>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <section id="archives" class="page">
+        <div class="page-head"><h2>Archives</h2></div>
+        <div class="row">
+          <input id="archive-search" placeholder="Recherche sémantique..." />
+          <select id="archive-status-filter">
+            <option value="all">Tous</option>
+            <option value="brouillon">Brouillon</option>
+            <option value="validé">Validé</option>
+          </select>
+          <button id="archive-refresh-btn">Actualiser</button>
+        </div>
+        <div id="search-results" class="list"></div>
+        <div id="archives-list" class="list archives-list"></div>
+      </section>
+
+      <section id="settings" class="page">
+        <div class="page-head"><h2>Paramètres</h2></div>
+        <div class="panel">
+          <label>Gemini API Key</label>
+          <input id="cfg-gemini" type="password" />
+          <label>OpenAI API Key</label>
+          <input id="cfg-openai" type="password" />
+          <label>Ollama Base URL</label>
+          <input id="cfg-ollama" />
+          <label>Modèle personnalisé</label>
+          <input id="cfg-custom" />
+          <label>Modèle d'embedding</label>
+          <input id="cfg-embed" />
+          <button id="save-config-btn">Sauvegarder</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
