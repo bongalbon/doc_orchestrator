@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+:root {
+  --background: #050816;
+  --foreground: #f8fafc;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: radial-gradient(circle at top, #1e1b4b 0%, var(--background) 46%);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.panel {
+  border: 1px solid #312e81;
+  border-radius: 18px;
+  padding: 1.25rem;
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.65), rgba(15, 23, 42, 0.7));
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.5);
+}
+
+.input {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid #334155;
+  background: rgba(15, 23, 42, 0.8);
+  padding: 0.7rem 0.85rem;
+  color: #e2e8f0;
+}
+
+.btn {
+  border-radius: 12px;
+  padding: 0.7rem 1rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, #4f46e5, #2563eb);
+  border: 1px solid #6366f1;
+  cursor: pointer;
+}
+
+.status {
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+}
+
+.status.queued {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+}
+.status.running {
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+.status.done {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #22c55e;
+}
+.status.failed {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: #f87171;
+}
+
+.task-card {
+  border: 1px solid #334155;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 0.8rem;
+}
+
+.result {
+  margin-top: 0.45rem;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  background: #020617;
+  padding: 0.65rem;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.chip {
+  border: 1px solid #475569;
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.75rem;
+  background: #0f172a;
+}
+
+.task-mini {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.83rem;
+}

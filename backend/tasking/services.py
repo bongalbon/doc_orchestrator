@@ -1,0 +1,75 @@
+from agents.models import Agent
+from tasking.models import AuditLog
+from tasking.models import AgentTask
+from tasking.tasks import execute_agent_task
+
+
+def choose_assigned_agent(prompt: str, requested_agent: Agent | None) -> Agent | None:
+    if requested_agent is None:
+        primary = Agent.objects.filter(kind="primary", is_active=True).first()
+        if primary:
+            return primary
+        return Agent.objects.create(
+            name="Main Orchestrator",
+            kind="primary",
+            specialty="routing",
+            system_prompt="You are the main coordinator agent.",
+            is_active=True,
+        )
+
+    if requested_agent.kind == "sub":
+        return requested_agent
+
+    subs = Agent.objects.filter(parent=requested_agent, is_active=True)
+    if not subs.exists():
+        return requested_agent
+
+    prompt_lc = prompt.lower()
+    scored = []
+    for sub in subs:
+        score = 0
+        if sub.specialty:
+            tokens = [t.strip() for t in sub.specialty.lower().split(",") if t.strip()]
+            score = sum(1 for token in tokens if token in prompt_lc)
+        scored.append((score, sub))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored[0][1] if scored else subs.first()
+
+
+def enqueue_task(title: str, prompt: str, requested_agent: Agent | None, timeout_seconds: int, actor=None) -> AgentTask:
+    assigned_agent = choose_assigned_agent(prompt=prompt, requested_agent=requested_agent)
+    task = AgentTask.objects.create(
+        title=title,
+        prompt=prompt,
+        requested_agent=requested_agent,
+        assigned_agent=assigned_agent,
+        status="queued",
+        timeout_seconds=timeout_seconds,
+    )
+    job = execute_agent_task.apply_async(
+        args=[task.id],
+        time_limit=timeout_seconds,
+        soft_time_limit=max(10, timeout_seconds - 5),
+    )
+    task.celery_task_id = job.id or ""
+    task.save(update_fields=["celery_task_id", "updated_at"])
+    AuditLog.objects.create(action="task_created", actor=actor, task=task, metadata={"queue_job_id": job.id})
+    return task
+
+
+def running_snapshot() -> list[dict]:
+    rows = AgentTask.objects.filter(status="running").select_related("assigned_agent")
+    return [
+        {
+            "task_id": row.id,
+            "agent_name": row.assigned_agent.name if row.assigned_agent else "Unassigned",
+            "title": row.title,
+            "status": row.status,
+        }
+        for row in rows
+    ]
+
+
+def active_agents_snapshot() -> list[str]:
+    running = AgentTask.objects.filter(status="running").select_related("assigned_agent")
+    return sorted(list({t.assigned_agent.name for t in running if t.assigned_agent is not None}))
