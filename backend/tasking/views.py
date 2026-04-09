@@ -59,7 +59,7 @@ class AgentTaskViewSet(
         task.cancel_requested = True
         task.save(update_fields=["cancel_requested", "updated_at"])
         if task.celery_task_id:
-            execute_agent_task.AsyncResult(task.celery_task_id).revoke(terminate=False)
+            execute_agent_task.AsyncResult(task.celery_task_id).revoke(terminate=True, signal="SIGKILL")
         AuditLog.objects.create(action="task_cancel_requested", actor=request.user, task=task)
         return Response({"ok": True})
 

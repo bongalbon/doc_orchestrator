@@ -27,28 +27,70 @@ type ActivityResponse = {
   active_agents: string[];
 };
 
+type AdminUser = {
+  id: number;
+  username: string;
+  email: string;
+  is_superuser: boolean;
+  roles: string[];
+};
+
+type AuditEntry = {
+  id: number;
+  action: string;
+  actor: string | null;
+  task_id: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000/api";
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
+  const access = window.localStorage.getItem("jwtAccess");
+  if (access) return { Authorization: `Bearer ${access}` };
   const token = window.localStorage.getItem("authToken");
   return token ? { Authorization: `Token ${token}` } : {};
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { cache: "no-store", headers: authHeaders() });
-  if (!res.ok) throw new Error(`GET ${path} failed`);
+async function refreshAccessToken(): Promise<boolean> {
+  const refresh = window.localStorage.getItem("jwtRefresh");
+  if (!refresh) return false;
+  const res = await fetch(`${API_BASE}/auth/refresh/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh }),
+  });
+  if (!res.ok) return false;
+  const data = (await res.json()) as { access: string };
+  window.localStorage.setItem("jwtAccess", data.access);
+  return true;
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    cache: "no-store",
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers || {}) },
+  });
+  if (res.status === 401 && (await refreshAccessToken())) {
+    return apiFetch<T>(path, init);
+  }
+  if (!res.ok) throw new Error(`${init?.method || "GET"} ${path} failed`);
   return res.json();
 }
 
+async function apiGet<T>(path: string): Promise<T> {
+  return apiFetch<T>(path);
+}
+
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  return apiFetch<T>(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`POST ${path} failed`);
-  return res.json();
 }
 
 export default function Home() {
@@ -66,6 +108,8 @@ export default function Home() {
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("admin12345");
   const [loggedIn, setLoggedIn] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
 
   const primaryAgents = useMemo(() => agents.filter((a) => a.kind === "primary"), [agents]);
 
@@ -78,6 +122,12 @@ export default function Home() {
     setAgents(agentData);
     setTasks(taskData);
     setActivity(activityData);
+    const [usersData, logsData] = await Promise.all([
+      apiGet<{ users: AdminUser[] }>("/admin/users/").catch(() => ({ users: [] })),
+      apiGet<{ logs: AuditEntry[] }>("/admin/audit/").catch(() => ({ logs: [] })),
+    ]);
+    setAdminUsers(usersData.users);
+    setAuditLogs(logsData.logs);
   }
 
   useEffect(() => {
@@ -95,16 +145,30 @@ export default function Home() {
 
   async function login(e: FormEvent) {
     e.preventDefault();
-    const response = await apiPost<{ token: string }>("/auth/login/", { username, password });
+    const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
+      username,
+      password,
+    });
     window.localStorage.setItem("authToken", response.token);
+    if (response.access) window.localStorage.setItem("jwtAccess", response.access);
+    if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
     setLoggedIn(true);
     await loadAll();
   }
 
   async function registerAndLogin() {
-    await apiPost<{ token: string }>("/auth/register/", { username, password, role: "manager" });
-    const response = await apiPost<{ token: string }>("/auth/login/", { username, password });
+    await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/register/", {
+      username,
+      password,
+      role: "manager",
+    });
+    const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
+      username,
+      password,
+    });
     window.localStorage.setItem("authToken", response.token);
+    if (response.access) window.localStorage.setItem("jwtAccess", response.access);
+    if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
     setLoggedIn(true);
     await loadAll();
   }
@@ -143,6 +207,21 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function cancelTask(taskId: number) {
+    await apiPost<{ ok: boolean }>(`/tasks/${taskId}/cancel/`, {});
+    await loadAll();
+  }
+
+  async function retryTask(taskId: number) {
+    await apiPost<{ ok: boolean }>(`/tasks/${taskId}/retry/`, {});
+    await loadAll();
+  }
+
+  async function updateRole(userId: number, role: string) {
+    await apiPost<{ ok: boolean }>(`/admin/users/${userId}/role/`, { role });
+    await loadAll();
   }
 
   if (!loggedIn) {
@@ -210,6 +289,18 @@ export default function Home() {
               <p className="text-xs text-slate-300">
                 Demande: {task.requested_agent_name || "auto"} - Execution: {task.assigned_agent_name || "routing"}
               </p>
+              <div className="mt-2 flex gap-2">
+                {(task.status === "queued" || task.status === "running") && (
+                  <button className="btn" onClick={() => cancelTask(task.id)}>
+                    Cancel
+                  </button>
+                )}
+                {(task.status === "failed" || task.status === "cancelled") && (
+                  <button className="btn" onClick={() => retryTask(task.id)}>
+                    Retry
+                  </button>
+                )}
+              </div>
               {task.result ? <pre className="result">{task.result}</pre> : null}
               {task.error_message ? <p className="text-red-300">{task.error_message}</p> : null}
             </article>
@@ -285,6 +376,32 @@ export default function Home() {
             Ajouter agent
           </button>
         </form>
+
+        <div className="grid gap-2">
+          <h2 className="text-lg font-semibold">Admin - Roles</h2>
+          {adminUsers.map((u) => (
+            <div key={u.id} className="task-mini">
+              <span>
+                {u.username} ({u.roles.join(",") || "none"})
+              </span>
+              <select className="input" defaultValue={u.roles[0] || "viewer"} onChange={(e) => updateRole(u.id, e.target.value)}>
+                <option value="viewer">viewer</option>
+                <option value="operator">operator</option>
+                <option value="manager">manager</option>
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-2">
+          <h2 className="text-lg font-semibold">Admin - Audit</h2>
+          {auditLogs.slice(0, 12).map((log) => (
+            <div key={log.id} className="task-mini">
+              <span>{log.action}</span>
+              <span>{log.actor || "-"}</span>
+            </div>
+          ))}
+        </div>
       </aside>
     </main>
   );

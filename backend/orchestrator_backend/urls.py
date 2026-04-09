@@ -17,9 +17,10 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
+from rest_framework_simplejwt.views import TokenRefreshView
 
 from agents.views import AgentViewSet
-from orchestrator_backend.auth_views import login, register
+from orchestrator_backend.auth_views import audit_logs, login, register, set_user_role, users_roles
 from tasking.views import AgentTaskViewSet
 
 router = DefaultRouter()
@@ -31,4 +32,8 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("api/auth/register/", register),
     path("api/auth/login/", login),
+    path("api/auth/refresh/", TokenRefreshView.as_view()),
+    path("api/admin/users/", users_roles),
+    path("api/admin/users/<int:user_id>/role/", set_user_role),
+    path("api/admin/audit/", audit_logs),
 ]
