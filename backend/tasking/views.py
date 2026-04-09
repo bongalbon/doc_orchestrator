@@ -1,7 +1,14 @@
+import io
 import os
 import urllib.request
 import json
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
+from docx import Document
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from openpyxl import Workbook
+from tasking.realtime import broadcast_activity
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -63,11 +70,19 @@ class AgentTaskViewSet(
         task = self.get_object()
         if task.status in {"done", "failed", "cancelled"}:
             return Response({"detail": "Task already finished."}, status=status.HTTP_400_BAD_REQUEST)
+        
         task.cancel_requested = True
-        task.save(update_fields=["cancel_requested", "updated_at"])
+        task.mark_cancelled() # Sets status to 'cancelled' and saves
+        
         if task.celery_task_id:
-            execute_agent_task.AsyncResult(task.celery_task_id).revoke(terminate=True, signal="SIGKILL")
+            try:
+                execute_agent_task.AsyncResult(task.celery_task_id).revoke(terminate=True, signal="SIGKILL")
+            except Exception:
+                pass
+                
         AuditLog.objects.create(action="task_cancel_requested", actor=request.user, task=task)
+        broadcast_activity({"event": "task_cancelled", "task_id": task.id})
+        
         return Response({"ok": True})
 
     @action(detail=True, methods=["post"], url_path="retry")
@@ -104,3 +119,51 @@ class AgentTaskViewSet(
         except Exception as e:
             return Response({"models": [], "error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response({"models": []})
+
+    @action(detail=True, methods=["get"], url_path="export/(?P<format>docx|pdf|xlsx)")
+    def export_document(self, request, pk=None, format=None):
+        task = self.get_object()
+        content = task.result or "Aucun contenu généré."
+        buffer = io.BytesIO()
+        
+        if format == "docx":
+            doc = Document()
+            doc.add_heading(task.title, 0)
+            doc.add_paragraph(content)
+            doc.save(buffer)
+            filename = f"export_{pk}.docx"
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif format == "pdf":
+            p = canvas.Canvas(buffer, pagesize=A4)
+            width, height = A4
+            p.setFont("Helvetica", 12)
+            p.drawString(50, height - 50, task.title)
+            textobject = p.beginText(50, height - 70)
+            # Basic line splitting for simplicity
+            for line in content.split("\n"):
+                if len(line) > 90: # Very basic wrap
+                    for i in range(0, len(line), 90):
+                        textobject.textLine(line[i:i+90])
+                else:
+                    textobject.textLine(line)
+            p.drawText(textobject)
+            p.showPage()
+            p.save()
+            filename = f"export_{pk}.pdf"
+            content_type = "application/pdf"
+        elif format == "xlsx":
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Resultat"
+            ws.append(["Titre", task.title])
+            ws.append(["Date", task.finished_at.strftime("%Y-%m-%d") if task.finished_at else ""])
+            ws.append([])
+            ws.append(["Contenu:"])
+            for line in content.split("\n"):
+                ws.append([line])
+            wb.save(buffer)
+            filename = f"export_{pk}.xlsx"
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        
+        buffer.seek(0)
+        return FileResponse(buffer, as_attachment=True, filename=filename, content_type=content_type)

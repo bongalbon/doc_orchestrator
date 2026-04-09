@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Agent = {
   id: number;
@@ -231,7 +233,7 @@ export default function Home() {
         requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
       });
       setTaskPrompt("");
-      setApiKey(""); // Clear for safety or keep depending on UX
+      setApiKey("");
       await loadAll();
     } finally {
       setBusy(false);
@@ -278,17 +280,29 @@ export default function Home() {
     await loadAll();
   }
 
-  function exportDoc(format: "docx" | "pdf" | "xlsx", title: string, content: string) {
-    // Simple mock export if libs are missing, otherwise could use real ones.
-    // For now, let's provide a simple text blob download with the requested extension.
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${title.replace(/\s+/g, "_")}.${format}`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  const handleExport = async (format: "docx" | "pdf" | "xlsx") => {
+    if (!studioTask) return;
+    const token = window.localStorage.getItem("jwtAccess");
+    try {
+      const response = await fetch(`${API_BASE}/tasks/${studioTask.id}/export/${format}/`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${studioTask.title.replace(/\s+/g, "_")}.${format}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    } catch (err) {
+      console.error("Export failed", err);
+    }
+  };
 
   if (!loggedIn) {
     return (
@@ -438,10 +452,11 @@ export default function Home() {
                 )}
               </div>
               {task.result ? (
-                <pre className="result max-h-40 overflow-hidden text-ellipsis relative">
-                  {task.result}
-                  <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-slate-900/80 to-transparent"></div>
-                </pre>
+                <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg text-sm text-slate-300 font-mono whitespace-pre-wrap overflow-x-auto min-h-[100px] mb-4 prose prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {task.result}
+                  </ReactMarkdown>
+                </div>
               ) : null}
               {task.error_message ? <p className="text-red-300">{task.error_message}</p> : null}
             </article>
@@ -459,22 +474,31 @@ export default function Home() {
                 </button>
               </div>
               <div className="mt-4 flex-1 overflow-auto">
-                <textarea
-                  className="input min-h-[50vh] w-full font-mono text-sm leading-relaxed"
-                  value={studioContent}
-                  onChange={(e) => setStudioContent(e.target.value)}
-                />
+                <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg text-sm text-slate-300 min-h-[400px] prose prose-invert max-w-none mb-6">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {studioContent}
+                  </ReactMarkdown>
+                </div>
+
+                <div className="bg-slate-800 p-4 rounded-lg mb-6 border border-slate-700">
+                  <h4 className="text-sm font-semibold mb-3">Éditeur de texte brut</h4>
+                  <textarea
+                    className="w-full bg-slate-900 text-slate-100 p-3 rounded border border-slate-600 min-h-[200px] text-sm font-mono"
+                    value={studioContent}
+                    onChange={(e) => setStudioContent(e.target.value)}
+                  />
+                </div>
               </div>
               <div className="mt-4 flex flex-wrap gap-2 justify-between border-t border-slate-700 pt-4">
                 <div className="flex gap-2">
-                  <button className="btn tertiary" onClick={() => exportDoc("docx", studioTask.title, studioContent)}>
+                  <button className="btn tertiary" onClick={() => handleExport("docx")}>
                     Export DOCX
                   </button>
-                  <button className="btn tertiary" onClick={() => exportDoc("pdf", studioTask.title, studioContent)}>
+                  <button className="btn tertiary" onClick={() => handleExport("pdf")}>
                     Export PDF
                   </button>
-                  <button className="btn tertiary" onClick={() => exportDoc("xlsx", studioTask.title, studioContent)}>
-                    Export Excel
+                  <button className="btn tertiary" onClick={() => handleExport("xlsx")}>
+                    Export XLSX
                   </button>
                 </div>
                 <div className="flex gap-2">

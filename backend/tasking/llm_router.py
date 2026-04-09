@@ -16,9 +16,24 @@ def _default_model_for_provider(provider: str) -> str:
 
 def resolve_model(provider: str | None, model: str | None) -> str:
     selected_provider = (provider or os.getenv("DEFAULT_PROVIDER", "ollama")).strip().lower()
-    if model and model.strip():
-        return model.strip()
-    return _default_model_for_provider(selected_provider)
+    
+    final_model = model.strip() if model and model.strip() else _default_model_for_provider(selected_provider)
+    
+    # Prefix mapping for litellm
+    prefix_map = {
+        "ollama": "ollama/",
+        "openai": "openai/",
+        "gemini": "gemini/",
+        "grok": "xai/",
+        "anthropic": "anthropic/",
+    }
+    
+    prefix = prefix_map.get(selected_provider, "")
+    # Add prefix if missing
+    if prefix and "/" not in final_model:
+        final_model = f"{prefix}{final_model}"
+    
+    return final_model
 
 
 def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model: str | None, api_key: str | None = None) -> str:

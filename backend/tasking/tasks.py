@@ -28,17 +28,25 @@ def execute_agent_task(self, task_id: int):
             broadcast_activity({"event": "task_cancelled", "task_id": task.id})
             return "cancelled"
 
-    result = run_llm_task(
-        prompt=task.prompt,
-        system_prompt=(
-            task.assigned_agent.system_prompt
-            if task.assigned_agent and task.assigned_agent.system_prompt
-            else "You are a specialist assistant."
-        ),
-        provider=task.provider,
-        model=task.model_name,
-        api_key=task.api_key,
-    )
-    task.mark_done(result)
-    broadcast_activity({"event": "task_done", "task_id": task.id})
+    try:
+        result = run_llm_task(
+            prompt=task.prompt,
+            system_prompt=(
+                task.assigned_agent.system_prompt
+                if task.assigned_agent and task.assigned_agent.system_prompt
+                else "You are a specialist assistant."
+            ),
+            provider=task.provider,
+            model=task.model_name,
+            api_key=task.api_key,
+        )
+        task.mark_done(result)
+        broadcast_activity({"event": "task_done", "task_id": task.id})
+    except Exception as e:
+        task.status = "FAILED"
+        task.result = f"Error: {str(e)}"
+        task.save(update_fields=["status", "result", "updated_at"])
+        broadcast_activity({"event": "task_failed", "task_id": task.id, "error": str(e)})
+        raise e
+        
     return "done"
