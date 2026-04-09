@@ -44,7 +44,8 @@ type AuditEntry = {
   created_at: string;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000/api";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8008/api";
+const WS_BASE = API_BASE.replace("http://", "ws://").replace("https://", "wss://").replace(/\/api$/, "");
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -137,7 +138,7 @@ export default function Home() {
     setLoggedIn(Boolean(token));
     if (token) {
       loadAll().catch(console.error);
-      const ws = new WebSocket("ws://127.0.0.1:8000/ws/activity/");
+      const ws = new WebSocket(`${WS_BASE}/ws/activity/`);
       ws.onmessage = () => {
         loadAll().catch(console.error);
       };

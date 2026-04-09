@@ -35,7 +35,7 @@ services:
       - redis
       - postgres
     ports:
-      - "8000:8000"
+      - "8008:8008"
 
   worker:
     build:
@@ -64,7 +64,7 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     environment:
-      NEXT_PUBLIC_API_BASE: http://localhost:8000/api
+      NEXT_PUBLIC_API_BASE: http://localhost:8008/api
     depends_on:
       - backend
     ports:

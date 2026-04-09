@@ -11,5 +11,5 @@ COPY .env /app/.env
 WORKDIR /app/backend
 RUN python manage.py collectstatic --noinput || true
 
-EXPOSE 8000
-CMD ["sh", "-c", "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 orchestrator_backend.asgi:application"]
+EXPOSE 8008
+CMD ["sh", "-c", "python manage.py migrate && daphne -b 0.0.0.0 -p 8008 orchestrator_backend.asgi:application"]
