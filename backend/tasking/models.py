@@ -26,6 +26,8 @@ class AgentTask(models.Model):
     )
     result = models.TextField(blank=True)
     error_message = models.TextField(blank=True)
+    api_key = models.CharField(max_length=255, blank=True, null=True)
+    is_approved = models.BooleanField(default=False)
     celery_task_id = models.CharField(max_length=120, blank=True)
     timeout_seconds = models.PositiveIntegerField(default=180)
     max_retries = models.PositiveIntegerField(default=2)

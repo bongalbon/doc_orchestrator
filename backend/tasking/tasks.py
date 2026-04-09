@@ -37,6 +37,7 @@ def execute_agent_task(self, task_id: int):
         ),
         provider=task.provider,
         model=task.model_name,
+        api_key=task.api_key,
     )
     task.mark_done(result)
     broadcast_activity({"event": "task_done", "task_id": task.id})

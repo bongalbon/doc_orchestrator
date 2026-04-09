@@ -43,6 +43,14 @@ body {
   border: 1px solid #6366f1;
   cursor: pointer;
 }
+.btn.secondary {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  border-color: #38bdf8;
+}
+.btn.tertiary {
+  background: linear-gradient(135deg, #64748b, #475569);
+  border-color: #94a3b8;
+}
 
 .status {
   border-radius: 999px;
@@ -84,6 +92,7 @@ body {
   padding: 0.65rem;
   font-size: 0.8rem;
   white-space: pre-wrap;
+  color: #cbd5e1;
 }
 
 .chip {

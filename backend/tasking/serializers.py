@@ -22,6 +22,8 @@ class AgentTaskSerializer(serializers.ModelSerializer):
             "assigned_agent_name",
             "result",
             "error_message",
+            "api_key",
+            "is_approved",
             "celery_task_id",
             "timeout_seconds",
             "max_retries",
@@ -43,5 +45,6 @@ class TaskCreateSerializer(serializers.Serializer):
         default="ollama",
     )
     model_name = serializers.CharField(required=False, allow_blank=True, default="")
+    api_key = serializers.CharField(required=False, allow_blank=True, default="", write_only=True)
     requested_agent_id = serializers.IntegerField(required=False, allow_null=True)
     timeout_seconds = serializers.IntegerField(required=False, min_value=10, max_value=3600, default=180)

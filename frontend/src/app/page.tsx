@@ -20,6 +20,8 @@ type AgentTask = {
   assigned_agent_name?: string;
   result: string;
   error_message: string;
+  api_key?: string;
+  is_approved?: boolean;
 };
 
 type ActivityResponse = {
@@ -113,6 +115,18 @@ export default function Home() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
+  const [apiKey, setApiKey] = useState("");
+  const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
+  const [studioContent, setStudioContent] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+
+  const PROVIDER_MODELS: Record<string, string[]> = {
+    ollama: ollamaModels.length > 0 ? ollamaModels : ["llama3.1:8b", "mistral", "gemma2"],
+    openai: ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+    gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-vision"],
+    anthropic: ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
+    grok: ["grok-2-1212", "grok-beta"],
+  };
 
   const primaryAgents = useMemo(() => agents.filter((a) => a.kind === "primary"), [agents]);
 
@@ -145,6 +159,14 @@ export default function Home() {
       return () => ws.close();
     }
   }, []);
+
+  useEffect(() => {
+    if (provider === "ollama") {
+      apiGet<{ models: string[] }>("/tasks/ollama-models/")
+        .then((res) => setOllamaModels(res.models))
+        .catch(() => setOllamaModels([]));
+    }
+  }, [provider]);
 
   async function login(e: FormEvent) {
     e.preventDefault();
@@ -205,9 +227,11 @@ export default function Home() {
         prompt: taskPrompt,
         provider,
         model_name: modelName,
+        api_key: apiKey,
         requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
       });
       setTaskPrompt("");
+      setApiKey(""); // Clear for safety or keep depending on UX
       await loadAll();
     } finally {
       setBusy(false);
@@ -227,6 +251,43 @@ export default function Home() {
   async function updateRole(userId: number, role: string) {
     await apiPost<{ ok: boolean }>(`/admin/users/${userId}/role/`, { role });
     await loadAll();
+  }
+
+  async function saveStudioResult() {
+    if (!studioTask) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/tasks/${studioTask.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ result: studioContent, is_approved: studioTask.is_approved }),
+      });
+      await loadAll();
+      setStudioTask(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function approveTask(task: AgentTask) {
+    await apiFetch(`/tasks/${task.id}/`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_approved: true }),
+    });
+    await loadAll();
+  }
+
+  function exportDoc(format: "docx" | "pdf" | "xlsx", title: string, content: string) {
+    // Simple mock export if libs are missing, otherwise could use real ones.
+    // For now, let's provide a simple text blob download with the requested extension.
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${title.replace(/\s+/g, "_")}.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   if (!loggedIn) {
@@ -271,19 +332,55 @@ export default function Home() {
             required
           />
           <div className="grid grid-cols-2 gap-2">
-            <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <select
+              className="input"
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value);
+                setModelName(PROVIDER_MODELS[e.target.value]?.[0] || "");
+              }}
+            >
               <option value="ollama">ollama (local)</option>
               <option value="openai">openai</option>
               <option value="gemini">gemini</option>
               <option value="grok">grok / xAI</option>
               <option value="anthropic">anthropic</option>
             </select>
-            <input
-              className="input"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="Model optionnel (sinon model par defaut du provider)"
-            />
+            {provider !== "ollama" ? (
+              <input
+                className="input"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="Clé API requis"
+                required
+              />
+            ) : (
+              <div className="input opacity-50 bg-slate-800 flex items-center text-xs">
+                Local Ollama - Pas de clé nécessaire
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            <div className="flex gap-2">
+              <select className="input flex-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                <option value="">-- Sélect. Modèle --</option>
+                {(PROVIDER_MODELS[provider] || []).map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+                <option value="custom">Autre (saisie manuelle)</option>
+              </select>
+              {(!PROVIDER_MODELS[provider]?.includes(modelName) || modelName === "custom") && (
+                <input
+                  className="input flex-1"
+                  value={modelName === "custom" ? "" : modelName}
+                  onChange={(e) => setModelName(e.target.value)}
+                  placeholder="Nom du modèle"
+                />
+              )}
+            </div>
           </div>
           <select className="input" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
             <option value="">Agent principal (delegation auto)</option>
@@ -320,12 +417,78 @@ export default function Home() {
                     Retry
                   </button>
                 )}
+                {task.status === "done" && (
+                  <>
+                    <button
+                      className="btn secondary"
+                      onClick={() => {
+                        setStudioTask(task);
+                        setStudioContent(task.result);
+                      }}
+                    >
+                      Studio / Éditer
+                    </button>
+                    {!task.is_approved && (
+                      <button className="btn" onClick={() => approveTask(task)}>
+                        Approuver
+                      </button>
+                    )}
+                    {task.is_approved && <span className="text-green-400 text-xs self-center">✓ Approuvé</span>}
+                  </>
+                )}
               </div>
-              {task.result ? <pre className="result">{task.result}</pre> : null}
+              {task.result ? (
+                <pre className="result max-h-40 overflow-hidden text-ellipsis relative">
+                  {task.result}
+                  <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-slate-900/80 to-transparent"></div>
+                </pre>
+              ) : null}
               {task.error_message ? <p className="text-red-300">{task.error_message}</p> : null}
             </article>
           ))}
         </div>
+
+        {/* Studio Modal */}
+        {studioTask && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div className="panel w-full max-w-4xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-700 pb-3">
+                <h2 className="text-xl font-bold">Studio: {studioTask.title}</h2>
+                <button className="text-slate-400 hover:text-white" onClick={() => setStudioTask(null)}>
+                  ✕
+                </button>
+              </div>
+              <div className="mt-4 flex-1 overflow-auto">
+                <textarea
+                  className="input min-h-[50vh] w-full font-mono text-sm leading-relaxed"
+                  value={studioContent}
+                  onChange={(e) => setStudioContent(e.target.value)}
+                />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2 justify-between border-t border-slate-700 pt-4">
+                <div className="flex gap-2">
+                  <button className="btn tertiary" onClick={() => exportDoc("docx", studioTask.title, studioContent)}>
+                    Export DOCX
+                  </button>
+                  <button className="btn tertiary" onClick={() => exportDoc("pdf", studioTask.title, studioContent)}>
+                    Export PDF
+                  </button>
+                  <button className="btn tertiary" onClick={() => exportDoc("xlsx", studioTask.title, studioContent)}>
+                    Export Excel
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button className="btn" onClick={() => setStudioTask(null)}>
+                    Fermer
+                  </button>
+                  <button className="btn primary" onClick={saveStudioResult} disabled={busy}>
+                    Sauvegarder
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <aside className="panel space-y-6">

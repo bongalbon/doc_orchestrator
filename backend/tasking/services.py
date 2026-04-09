@@ -46,6 +46,7 @@ def enqueue_task(
     actor=None,
     provider: str = "ollama",
     model_name: str = "",
+    api_key: str = "",
 ) -> "AgentTask":
     from tasking.models import AgentTask, AuditLog
     from tasking.tasks import execute_agent_task
@@ -58,6 +59,7 @@ def enqueue_task(
         assigned_agent=assigned_agent,
         provider=provider,
         model_name=model_name,
+        api_key=api_key,
         status="queued",
         timeout_seconds=timeout_seconds,
     )

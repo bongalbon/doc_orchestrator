@@ -21,15 +21,21 @@ def resolve_model(provider: str | None, model: str | None) -> str:
     return _default_model_for_provider(selected_provider)
 
 
-def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model: str | None) -> str:
+def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model: str | None, api_key: str | None = None) -> str:
     final_model = resolve_model(provider=provider, model=model)
-    response = completion(
-        model=final_model,
-        messages=[
+    
+    kwargs = {
+        "model": final_model,
+        "messages": [
             {"role": "system", "content": system_prompt or "You are a helpful specialist assistant."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.2,
-        timeout=90,
-    )
+        "temperature": 0.2,
+        "timeout": 90,
+    }
+    
+    if api_key:
+        kwargs["api_key"] = api_key
+        
+    response = completion(**kwargs)
     return response["choices"][0]["message"]["content"]

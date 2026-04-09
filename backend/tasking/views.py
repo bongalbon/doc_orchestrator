@@ -1,3 +1,6 @@
+import os
+import urllib.request
+import json
 from django.shortcuts import get_object_or_404
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -16,6 +19,7 @@ class AgentTaskViewSet(
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = AgentTaskSerializer
@@ -40,6 +44,7 @@ class AgentTaskViewSet(
             actor=request.user,
             provider=payload["provider"],
             model_name=payload["model_name"],
+            api_key=payload.get("api_key", ""),
         )
         serialized = AgentTaskSerializer(task)
         return Response(serialized.data, status=status.HTTP_201_CREATED)
@@ -86,3 +91,16 @@ class AgentTaskViewSet(
         task.save(update_fields=["celery_task_id", "updated_at"])
         AuditLog.objects.create(action="task_retried", actor=request.user, task=task, metadata={"job_id": job.id})
         return Response({"ok": True})
+
+    @action(detail=False, methods=["get"], url_path="ollama-models")
+    def ollama_models(self, request):
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+        try:
+            with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode())
+                    models = [m["name"] for m in data.get("models", [])]
+                    return Response({"models": models})
+        except Exception as e:
+            return Response({"models": [], "error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response({"models": []})

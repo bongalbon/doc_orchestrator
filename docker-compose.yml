@@ -36,6 +36,9 @@ services:
       - postgres
     ports:
       - "8008:8008"
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
 
   worker:
     build:
@@ -58,6 +61,9 @@ services:
     depends_on:
       - redis
       - postgres
+    volumes:
+      - ./backend:/app/backend
+      - ./.env:/app/.env
 
   frontend:
     build:
@@ -67,6 +73,11 @@ services:
       NEXT_PUBLIC_API_BASE: http://localhost:8008/api
     depends_on:
       - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
     ports:
       - "3001:3000"
 
