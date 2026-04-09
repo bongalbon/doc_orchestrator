@@ -1,10 +1,12 @@
-from agents.models import Agent
-from tasking.models import AuditLog
-from tasking.models import AgentTask
-from tasking.tasks import execute_agent_task
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agents.models import Agent
 
 
-def choose_assigned_agent(prompt: str, requested_agent: Agent | None) -> Agent | None:
+def choose_assigned_agent(prompt: str, requested_agent):
+    from agents.models import Agent
+
     if requested_agent is None:
         primary = Agent.objects.filter(kind="primary", is_active=True).first()
         if primary:
@@ -39,12 +41,15 @@ def choose_assigned_agent(prompt: str, requested_agent: Agent | None) -> Agent |
 def enqueue_task(
     title: str,
     prompt: str,
-    requested_agent: Agent | None,
+    requested_agent,
     timeout_seconds: int,
     actor=None,
     provider: str = "ollama",
     model_name: str = "",
-) -> AgentTask:
+) -> "AgentTask":
+    from tasking.models import AgentTask, AuditLog
+    from tasking.tasks import execute_agent_task
+
     assigned_agent = choose_assigned_agent(prompt=prompt, requested_agent=requested_agent)
     task = AgentTask.objects.create(
         title=title,
@@ -68,6 +73,8 @@ def enqueue_task(
 
 
 def running_snapshot() -> list[dict]:
+    from tasking.models import AgentTask
+
     rows = AgentTask.objects.filter(status="running").select_related("assigned_agent")
     return [
         {
@@ -81,5 +88,7 @@ def running_snapshot() -> list[dict]:
 
 
 def active_agents_snapshot() -> list[str]:
+    from tasking.models import AgentTask
+
     running = AgentTask.objects.filter(status="running").select_related("assigned_agent")
     return sorted(list({t.assigned_agent.name for t in running if t.assigned_agent is not None}))
