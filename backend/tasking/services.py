@@ -36,13 +36,23 @@ def choose_assigned_agent(prompt: str, requested_agent: Agent | None) -> Agent |
     return scored[0][1] if scored else subs.first()
 
 
-def enqueue_task(title: str, prompt: str, requested_agent: Agent | None, timeout_seconds: int, actor=None) -> AgentTask:
+def enqueue_task(
+    title: str,
+    prompt: str,
+    requested_agent: Agent | None,
+    timeout_seconds: int,
+    actor=None,
+    provider: str = "ollama",
+    model_name: str = "",
+) -> AgentTask:
     assigned_agent = choose_assigned_agent(prompt=prompt, requested_agent=requested_agent)
     task = AgentTask.objects.create(
         title=title,
         prompt=prompt,
         requested_agent=requested_agent,
         assigned_agent=assigned_agent,
+        provider=provider,
+        model_name=model_name,
         status="queued",
         timeout_seconds=timeout_seconds,
     )

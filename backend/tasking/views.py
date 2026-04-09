@@ -38,6 +38,8 @@ class AgentTaskViewSet(
             requested_agent=requested_agent,
             timeout_seconds=payload["timeout_seconds"],
             actor=request.user,
+            provider=payload["provider"],
+            model_name=payload["model_name"],
         )
         serialized = AgentTaskSerializer(task)
         return Response(serialized.data, status=status.HTTP_201_CREATED)

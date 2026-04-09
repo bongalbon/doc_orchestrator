@@ -15,6 +15,8 @@ class AgentTask(models.Model):
 
     title = models.CharField(max_length=180)
     prompt = models.TextField()
+    provider = models.CharField(max_length=40, default="ollama")
+    model_name = models.CharField(max_length=160, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="queued")
     requested_agent = models.ForeignKey(
         Agent, null=True, blank=True, on_delete=models.SET_NULL, related_name="requested_tasks"

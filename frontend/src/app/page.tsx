@@ -99,6 +99,8 @@ export default function Home() {
   const [activity, setActivity] = useState<ActivityResponse>({ running_tasks: [], active_agents: [] });
   const [taskTitle, setTaskTitle] = useState("Rédiger la note stratégique");
   const [taskPrompt, setTaskPrompt] = useState("");
+  const [provider, setProvider] = useState("ollama");
+  const [modelName, setModelName] = useState("");
   const [targetAgentId, setTargetAgentId] = useState<string>("");
   const [agentName, setAgentName] = useState("");
   const [agentKind, setAgentKind] = useState<"primary" | "sub">("sub");
@@ -200,6 +202,8 @@ export default function Home() {
       await apiPost<AgentTask>("/tasks/", {
         title: taskTitle,
         prompt: taskPrompt,
+        provider,
+        model_name: modelName,
         requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
       });
       setTaskPrompt("");
@@ -265,6 +269,21 @@ export default function Home() {
             placeholder="Explique la tache a traiter..."
             required
           />
+          <div className="grid grid-cols-2 gap-2">
+            <select className="input" value={provider} onChange={(e) => setProvider(e.target.value)}>
+              <option value="ollama">ollama (local)</option>
+              <option value="openai">openai</option>
+              <option value="gemini">gemini</option>
+              <option value="grok">grok / xAI</option>
+              <option value="anthropic">anthropic</option>
+            </select>
+            <input
+              className="input"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              placeholder="Model optionnel (sinon model par defaut du provider)"
+            />
+          </div>
           <select className="input" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
             <option value="">Agent principal (delegation auto)</option>
             {agents.map((agent) => (

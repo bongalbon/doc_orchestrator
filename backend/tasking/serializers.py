@@ -13,6 +13,8 @@ class AgentTaskSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "prompt",
+            "provider",
+            "model_name",
             "status",
             "requested_agent",
             "requested_agent_name",
@@ -35,5 +37,11 @@ class AgentTaskSerializer(serializers.ModelSerializer):
 class TaskCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=180)
     prompt = serializers.CharField()
+    provider = serializers.ChoiceField(
+        choices=["ollama", "openai", "gemini", "grok", "anthropic"],
+        required=False,
+        default="ollama",
+    )
+    model_name = serializers.CharField(required=False, allow_blank=True, default="")
     requested_agent_id = serializers.IntegerField(required=False, allow_null=True)
     timeout_seconds = serializers.IntegerField(required=False, min_value=10, max_value=3600, default=180)

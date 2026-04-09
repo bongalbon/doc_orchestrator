@@ -2,6 +2,7 @@ import time
 
 from celery import shared_task
 
+from tasking.llm_router import run_llm_task
 from tasking.models import AgentTask
 from tasking.realtime import broadcast_activity
 
@@ -18,8 +19,8 @@ def execute_agent_task(self, task_id: int):
     task.save(update_fields=["celery_task_id", "updated_at"])
     broadcast_activity({"event": "task_running", "task_id": task.id})
 
-    # Simulated execution with cooperative cancellation checks.
-    for _ in range(6):
+    # Short cooperative cancellation window before calling the LLM.
+    for _ in range(2):
         time.sleep(1)
         task.refresh_from_db(fields=["cancel_requested", "status"])
         if task.cancel_requested:
@@ -27,9 +28,15 @@ def execute_agent_task(self, task_id: int):
             broadcast_activity({"event": "task_cancelled", "task_id": task.id})
             return "cancelled"
 
-    result = (
-        f"Task '{task.title}' completed by "
-        f"{task.assigned_agent.name if task.assigned_agent else 'default agent'}.\n\nPrompt:\n{task.prompt}"
+    result = run_llm_task(
+        prompt=task.prompt,
+        system_prompt=(
+            task.assigned_agent.system_prompt
+            if task.assigned_agent and task.assigned_agent.system_prompt
+            else "You are a specialist assistant."
+        ),
+        provider=task.provider,
+        model=task.model_name,
     )
     task.mark_done(result)
     broadcast_activity({"event": "task_done", "task_id": task.id})
