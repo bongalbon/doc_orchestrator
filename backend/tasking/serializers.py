@@ -1,11 +1,17 @@
 from rest_framework import serializers
 
+from agents.models import Agent
 from .models import AgentTask
 
 
 class AgentTaskSerializer(serializers.ModelSerializer):
     requested_agent_name = serializers.CharField(source="requested_agent.name", read_only=True)
     assigned_agent_name = serializers.CharField(source="assigned_agent.name", read_only=True)
+    assigned_agent_id = serializers.PrimaryKeyRelatedField(
+        source="assigned_agent", queryset=Agent.objects.all(),
+        required=False, allow_null=True
+    )
+    model = serializers.CharField(source="model_name", required=False, allow_blank=True)
 
     class Meta:
         model = AgentTask
@@ -15,10 +21,12 @@ class AgentTaskSerializer(serializers.ModelSerializer):
             "prompt",
             "provider",
             "model_name",
+            "model",
             "status",
             "requested_agent",
             "requested_agent_name",
             "assigned_agent",
+            "assigned_agent_id",
             "assigned_agent_name",
             "result",
             "error_message",

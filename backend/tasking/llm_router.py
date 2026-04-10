@@ -7,7 +7,7 @@ def _default_model_for_provider(provider: str) -> str:
     defaults = {
         "ollama": os.getenv("OLLAMA_MODEL", "ollama/llama3.1:8b"),
         "openai": os.getenv("OPENAI_MODEL", "openai/gpt-4o-mini"),
-        "gemini": os.getenv("GEMINI_MODEL", "gemini/gemini-1.5-flash"),
+        "gemini": os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash"),
         "grok": os.getenv("GROK_MODEL", "xai/grok-2-latest"),
         "anthropic": os.getenv("ANTHROPIC_MODEL", "anthropic/claude-3-5-sonnet-20240620"),
     }

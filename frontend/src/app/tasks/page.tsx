@@ -10,11 +10,22 @@ type AgentTask = {
   title: string;
   prompt: string;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
+  assigned_agent_id?: number;
   assigned_agent_name?: string;
   result: string;
   error_message: string;
   is_approved?: boolean;
   created_at?: string;
+  provider?: string;
+  model?: string;
+};
+
+type Agent = {
+  id: number;
+  name: string;
+  kind: "primary" | "sub";
+  specialty?: string;
+  is_active?: boolean;
 };
 
 type ActivityResponse = {
@@ -82,15 +93,32 @@ export default function TasksPage() {
   const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
   const [studioContent, setStudioContent] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
+  const [agents, setAgents] = useState<Agent[]>([]);
+
+  // États pour le modal de re-paramétrage
+  const [retryTaskModal, setRetryTaskModal] = useState<AgentTask | null>(null);
+  const [retryAgentId, setRetryAgentId] = useState<string>("");
+  const [retryProvider, setRetryProvider] = useState<string>("gemini");
+  const [retryModel, setRetryModel] = useState<string>("gemini-2.5-flash");
+
+  const PROVIDER_MODELS: Record<string, string[]> = {
+    ollama: ["llama3.1:8b", "mistral", "gemma2"],
+    openai: ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+    gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro-vision"],
+    anthropic: ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
+    grok: ["grok-2-1212", "grok-beta"],
+  };
 
   async function loadAll() {
     try {
-      const [taskData, activityData] = await Promise.all([
+      const [taskData, activityData, agentsData] = await Promise.all([
         apiGet<AgentTask[]>("/tasks/"),
         apiGet<ActivityResponse>("/tasks/activity/"),
+        apiGet<Agent[]>("/agents/"),
       ]);
       setTasks(taskData);
       setActivity(activityData);
+      setAgents(agentsData);
     } catch (err) {
       console.error("Load failed", err);
       setLoggedIn(false);
@@ -113,6 +141,46 @@ export default function TasksPage() {
     try {
       await apiPost<{ ok: boolean }>(`/tasks/${taskId}/retry/`, {});
       await loadAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openRetryModal(task: AgentTask) {
+    setRetryTaskModal(task);
+    setRetryAgentId(task.assigned_agent_id?.toString() || "");
+    setRetryProvider(task.provider || "gemini");
+    setRetryModel(task.model || PROVIDER_MODELS.gemini[0]);
+  }
+
+  function closeRetryModal() {
+    setRetryTaskModal(null);
+    setRetryAgentId("");
+    setRetryProvider("gemini");
+    setRetryModel("gemini-2.5-flash");
+  }
+
+  async function retryWithNewParams(e: React.FormEvent) {
+    e.preventDefault();
+    if (!retryTaskModal) return;
+
+    setBusy(true);
+    try {
+      // Mise à jour de la tâche avec les nouveaux paramètres
+      await apiFetch(`/tasks/${retryTaskModal.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assigned_agent_id: retryAgentId ? Number(retryAgentId) : null,
+          provider: retryProvider,
+          model: retryModel,
+        }),
+      });
+
+      // Relancer la tâche
+      await apiPost<{ ok: boolean }>(`/tasks/${retryTaskModal.id}/retry/`, {});
+      await loadAll();
+      closeRetryModal();
     } finally {
       setBusy(false);
     }
@@ -488,13 +556,13 @@ export default function TasksPage() {
                         </button>
                       )}
 
-                      {task.status === "failed" && (
+                      {(task.status === "failed" || task.status === "cancelled") && (
                         <button
-                          className="btn !py-1 text-xs border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/10"
-                          onClick={() => retryTask(task.id)}
+                          className="btn !py-2 text-sm border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/10"
+                          onClick={() => openRetryModal(task)}
                           disabled={busy}
                         >
-                          🔄 Relancer la tâche
+                          🔄 Relancer avec options
                         </button>
                       )}
 
@@ -517,15 +585,6 @@ export default function TasksPage() {
                         </>
                       )}
 
-                      {task.status === "cancelled" && (
-                        <button
-                          className="btn !py-1 text-xs"
-                          onClick={() => retryTask(task.id)}
-                          disabled={busy}
-                        >
-                          🔄 Relancer
-                        </button>
-                      )}
                     </div>
                   </article>
                 ))}
@@ -534,6 +593,91 @@ export default function TasksPage() {
           </section>
         </div>
       </main>
+
+      {/* Retry Modal with Re-configuration */}
+      {retryTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-secondary)" }}>
+            <div className="flex items-center justify-between p-4 border-b bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-sm text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">DOC-{retryTaskModal.id}</span>
+                <h2 className="text-lg font-serif">Relancer avec nouveaux paramètres</h2>
+              </div>
+              <button className="text-[#888] hover:text-white transition-colors text-xl leading-none" onClick={closeRetryModal}>✕</button>
+            </div>
+
+            <form onSubmit={retryWithNewParams} className="p-4 space-y-4 overflow-y-auto">
+              <div className="bg-[#ef4444]/10 border border-[#ef4444]/30 rounded p-3 mb-4">
+                <p className="text-sm text-[#ef4444]">
+                  <strong>Erreur précédente :</strong> {retryTaskModal.error_message || "Erreur inconnue"}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Agent assigné</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryAgentId}
+                  onChange={(e) => setRetryAgentId(e.target.value)}
+                >
+                  <option value="">Délégation automatique</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} ({agent.kind}){agent.specialty ? ` - ${agent.specialty}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Provider LLM</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryProvider}
+                  onChange={(e) => {
+                    setRetryProvider(e.target.value);
+                    setRetryModel(PROVIDER_MODELS[e.target.value]?.[0] || "");
+                  }}
+                >
+                  <option value="ollama">Ollama (Local)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="grok">xAI Grok</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Modèle</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryModel}
+                  onChange={(e) => setRetryModel(e.target.value)}
+                >
+                  {PROVIDER_MODELS[retryProvider]?.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                  <option value="custom">Custom...</option>
+                </select>
+                {retryModel === "custom" && (
+                  <input
+                    className="input w-full text-sm py-2 mt-2"
+                    placeholder="Nom du modèle personnalisé..."
+                    onChange={(e) => setRetryModel(e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div className="pt-4 border-t flex gap-3" style={{ borderColor: "var(--border-color)" }}>
+                <button type="button" className="btn" onClick={closeRetryModal}>Annuler</button>
+                <button type="submit" className="btn primary flex-1" disabled={busy}>
+                  {busy ? "Relancement..." : "🚀 Relancer la tâche"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Studio Modal */}
       {studioTask && (

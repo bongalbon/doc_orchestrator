@@ -20,11 +20,14 @@ type AgentTask = {
   prompt: string;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   requested_agent_name?: string;
+  assigned_agent_id?: number;
   assigned_agent_name?: string;
   result: string;
   error_message: string;
   api_key?: string;
   is_approved?: boolean;
+  provider?: string;
+  model?: string;
 };
 
 type ActivityResponse = {
@@ -156,6 +159,18 @@ export default function Home() {
   const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
   const [studioContent, setStudioContent] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [editAgentName, setEditAgentName] = useState("");
+  const [editAgentKind, setEditAgentKind] = useState<"primary" | "sub">("sub");
+  const [editAgentSpecialty, setEditAgentSpecialty] = useState("");
+  const [editAgentParentId, setEditAgentParentId] = useState<string>("");
+  const [editAgentIsActive, setEditAgentIsActive] = useState(true);
+
+  // États pour le modal de re-paramétrage
+  const [retryTaskModal, setRetryTaskModal] = useState<AgentTask | null>(null);
+  const [retryAgentId, setRetryAgentId] = useState<string>("");
+  const [retryProvider, setRetryProvider] = useState<string>("gemini");
+  const [retryModel, setRetryModel] = useState<string>("gemini-2.5-flash");
 
   const PROVIDER_MODELS: Record<string, string[]> = {
     ollama: ollamaModels.length > 0 ? ollamaModels : ["llama3.1:8b", "mistral", "gemma2"],
@@ -310,6 +325,46 @@ export default function Home() {
     }
   }
 
+  function openAgentEditor(agent: Agent) {
+    setEditingAgent(agent);
+    setEditAgentName(agent.name);
+    setEditAgentKind(agent.kind);
+    setEditAgentSpecialty(agent.specialty);
+    setEditAgentParentId(agent.parent?.toString() || "");
+    setEditAgentIsActive(agent.is_active);
+  }
+
+  function closeAgentEditor() {
+    setEditingAgent(null);
+    setEditAgentName("");
+    setEditAgentSpecialty("");
+    setEditAgentParentId("");
+    setEditAgentIsActive(true);
+  }
+
+  async function updateAgent(e: FormEvent) {
+    e.preventDefault();
+    if (!editingAgent) return;
+    setBusy(true);
+    try {
+      await apiFetch<Agent>(`/agents/${editingAgent.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editAgentName,
+          kind: editAgentKind,
+          specialty: editAgentSpecialty,
+          parent: editAgentKind === "sub" && editAgentParentId ? Number(editAgentParentId) : null,
+          is_active: editAgentIsActive,
+        }),
+      });
+      closeAgentEditor();
+      await loadAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function createTask(e?: FormEvent) {
     if (e) e.preventDefault();
     setBusy(true);
@@ -374,6 +429,46 @@ export default function Home() {
   async function retryTask(taskId: number) {
     await apiPost<{ ok: boolean }>(`/tasks/${taskId}/retry/`, {});
     await loadAll();
+  }
+
+  function openRetryModal(task: AgentTask) {
+    setRetryTaskModal(task);
+    setRetryAgentId(task.assigned_agent_id?.toString() || "");
+    setRetryProvider(task.provider || "gemini");
+    setRetryModel(task.model || PROVIDER_MODELS.gemini[0]);
+  }
+
+  function closeRetryModal() {
+    setRetryTaskModal(null);
+    setRetryAgentId("");
+    setRetryProvider("gemini");
+    setRetryModel("gemini-2.5-flash");
+  }
+
+  async function retryWithNewParams(e: FormEvent) {
+    e.preventDefault();
+    if (!retryTaskModal) return;
+
+    setBusy(true);
+    try {
+      // Mise à jour de la tâche avec les nouveaux paramètres
+      await apiFetch(`/tasks/${retryTaskModal.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assigned_agent_id: retryAgentId ? Number(retryAgentId) : null,
+          provider: retryProvider,
+          model: retryModel,
+        }),
+      });
+
+      // Relancer la tâche
+      await apiPost<{ ok: boolean }>(`/tasks/${retryTaskModal.id}/retry/`, {});
+      await loadAll();
+      closeRetryModal();
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function updateRole(userId: number, role: string) {
@@ -462,15 +557,15 @@ export default function Home() {
           <p className="text-sm text-[#888888] mb-6">Entrez vos identifiants pour accéder à la plateforme.</p>
           <form className="grid gap-4" onSubmit={login}>
             <div>
-              <label className="text-xs text-[#888] mb-1 block uppercase tracking-wider">Nom d'utilisateur</label>
+              <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Nom d'utilisateur</label>
               <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Nom d'utilisateur" />
             </div>
             <div>
-              <label className="text-xs text-[#888] mb-1 block uppercase tracking-wider">Mot de passe</label>
+              <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Mot de passe</label>
               <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mot de passe" />
             </div>
             <button className="btn primary w-full mt-2">Se connecter</button>
-            <button type="button" className="btn w-full opacity-60 text-xs" onClick={registerAndLogin}>
+            <button type="button" className="btn w-full opacity-60 text-sm" onClick={registerAndLogin}>
               Créer un compte manager
             </button>
           </form>
@@ -484,38 +579,39 @@ export default function Home() {
       {/* Sidebar */}
       <aside className="w-64 border-r flex flex-col shrink-0 overflow-y-auto" style={{ backgroundColor: "var(--bg-secondary)", borderColor: "var(--border-color)" }}>
         <div className="p-4 border-b flex items-center gap-2 shrink-0" style={{ borderColor: "var(--border-color)" }}>
-          <div className="w-6 h-6 rounded bg-[#ff5c00] flex items-center justify-center text-black font-bold text-xs">AI</div>
-          <h1 className="font-serif text-lg leading-none">AI DOC<br/><span className="text-xs font-sans text-[#888]">ORCHESTRATOR</span></h1>
+          <div className="w-7 h-7 rounded bg-[#ff5c00] flex items-center justify-center text-black font-bold text-sm">AI</div>
+          <h1 className="font-serif text-xl leading-none">AI DOC<br/><span className="text-sm font-sans text-[#888]">ORCHESTRATOR</span></h1>
         </div>
 
         <div className="p-4 flex-1">
           <div className="mb-6">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Agents disponibles</h2>
+            <h2 className="text-sm font-mono uppercase tracking-wider text-[#888] mb-3">Agents disponibles</h2>
             <div className="flex flex-wrap gap-1.5 mb-3">
               {agents.length ? (
                 agents.map((a) => {
                   const isRunning = activity.active_agents.includes(a.name);
                   return (
-                    <span 
-                      key={a.id} 
-                      className={`chip relative ${isRunning ? 'animate-pulse ring-2 ring-[#ff5c00] ring-offset-1 ring-offset-black' : ''}`}
-                      title={`${a.name} - ${a.specialty || 'Spécialité générale'}${isRunning ? ' (En cours)' : ''}`}
+                    <button
+                      key={a.id}
+                      onClick={() => openAgentEditor(a)}
+                      className={`chip relative text-left cursor-pointer hover:ring-2 hover:ring-[#ff5c00]/50 transition-all ${isRunning ? 'animate-pulse ring-2 ring-[#ff5c00] ring-offset-1 ring-offset-black' : ''}`}
+                      title={`${a.name} - ${a.specialty || 'Spécialité générale'}${isRunning ? ' (En cours - Cliquez pour configurer)' : ' (Cliquez pour configurer)'}`}
                     >
                       {a.name}
                       {isRunning && (
                         <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#10b981] rounded-full animate-ping"></span>
                       )}
-                    </span>
+                    </button>
                   );
                 })
               ) : (
-                <span className="text-xs text-[#555]">Aucun agent créé</span>
+                <span className="text-sm text-[#555]">Aucun agent créé</span>
               )}
             </div>
           </div>
 
           <div className="mb-6">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">
+            <h2 className="text-sm font-mono uppercase tracking-wider text-[#888] mb-3">
               Activité en direct
               {activity.running_tasks.length > 0 && (
                 <span className="ml-2 text-[#ff5c00] animate-pulse">●</span>
@@ -523,7 +619,7 @@ export default function Home() {
             </h2>
             <ul className="space-y-2">
               {activity.running_tasks.map((row) => (
-                <li key={row.task_id} className="text-xs border p-2 rounded flex flex-col relative overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+                <li key={row.task_id} className="text-sm border p-2 rounded flex flex-col relative overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
                   <div className="absolute inset-0 bg-gradient-to-r from-[#ff5c00]/10 via-[#ff5c00]/5 to-transparent animate-pulse"></div>
                   <div className="relative flex items-center gap-2">
                     <span className="w-2 h-2 bg-[#ff5c00] rounded-full animate-spin"></span>
@@ -533,30 +629,30 @@ export default function Home() {
                 </li>
               ))}
               {activity.running_tasks.length === 0 && (
-                <li className="text-xs text-[#555] italic">Aucune tâche en cours</li>
+                <li className="text-sm text-[#555] italic">Aucune tâche en cours</li>
               )}
             </ul>
           </div>
 
           <div className="mb-6">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Liste des agents</h2>
+            <h2 className="text-sm font-mono uppercase tracking-wider text-[#888] mb-3">Liste des agents</h2>
             <form className="grid gap-2" onSubmit={createAgent}>
-              <input className="input !py-1.5 !px-2 text-xs" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Nom de l'agent" required />
-              <select className="input !py-1.5 !px-2 text-xs" value={agentKind} onChange={(e) => setAgentKind(e.target.value as "primary" | "sub")}>
+              <input className="input !py-2 !px-3 text-sm" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Nom de l'agent" required />
+              <select className="input !py-2 !px-3 text-sm" value={agentKind} onChange={(e) => setAgentKind(e.target.value as "primary" | "sub")}>
                 <option value="sub">Sous-agent</option>
                 <option value="primary">Agent principal</option>
               </select>
-              <input className="input !py-1.5 !px-2 text-xs" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Spécialité" />
-              <button className="btn w-full !py-1.5 text-xs" disabled={busy}>Recruter un agent</button>
+              <input className="input !py-2 !px-3 text-sm" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Spécialité" />
+              <button className="btn w-full !py-2 text-sm" disabled={busy}>Recruter un agent</button>
             </form>
           </div>
 
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-mono uppercase tracking-wider text-[#888]">Clés API</h2>
-              <button 
+              <h2 className="text-sm font-mono uppercase tracking-wider text-[#888]">Clés API</h2>
+              <button
                 onClick={() => setShowApiKeys(!showApiKeys)}
-                className="text-[10px] text-[#ff5c00] hover:text-[#ff7c33]"
+                className="text-xs text-[#ff5c00] hover:text-[#ff7c33]"
               >
                 {showApiKeys ? "Masquer" : "Gérer"}
               </button>
@@ -565,8 +661,8 @@ export default function Home() {
             {showApiKeys && (
               <div className="space-y-2 mb-3 p-2 rounded bg-black/50 border" style={{ borderColor: "var(--border-color)" }}>
                 <div className="flex flex-col gap-1">
-                  <select 
-                    className="input !py-1 !px-2 text-xs"
+                  <select
+                    className="input !py-2 !px-3 text-sm"
                     value={newApiProvider}
                     onChange={(e) => setNewApiProvider(e.target.value)}
                   >
@@ -577,14 +673,14 @@ export default function Home() {
                   </select>
                   <input
                     type="password"
-                    className="input !py-1 !px-2 text-xs"
+                    className="input !py-2 !px-3 text-sm"
                     placeholder="Nouvelle clé API..."
                     value={newApiKey}
                     onChange={(e) => setNewApiKey(e.target.value)}
                   />
-                  <button 
+                  <button
                     onClick={saveApiKey}
-                    className="btn !py-1 text-xs"
+                    className="btn !py-2 text-sm"
                     disabled={!newApiKey.trim()}
                   >
                     Sauvegarder
@@ -596,7 +692,7 @@ export default function Home() {
             {Object.keys(savedApiKeys).length > 0 && (
               <div className="space-y-1">
                 {Object.entries(savedApiKeys).map(([prov, key]) => (
-                  <div key={prov} className="flex items-center justify-between text-xs">
+                  <div key={prov} className="flex items-center justify-between text-sm">
                     <span className="text-[#888] capitalize">{prov}</span>
                     <div className="flex gap-1">
                       <button
@@ -619,21 +715,21 @@ export default function Home() {
               </div>
             )}
             {Object.keys(savedApiKeys).length === 0 && (
-              <p className="text-[10px] text-[#555]">Aucune clé sauvegardée</p>
+              <p className="text-xs text-[#555]">Aucune clé sauvegardée</p>
             )}
           </div>
 
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-mono uppercase tracking-wider text-[#888]">Notifications</h2>
-              <button 
+              <h2 className="text-sm font-mono uppercase tracking-wider text-[#888]">Notifications</h2>
+              <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="relative text-[10px] text-[#ff5c00] hover:text-[#ff7c33]"
+                className="relative text-xs text-[#ff5c00] hover:text-[#ff7c33]"
               >
                 <span className="flex items-center gap-1">
                   🔔
                   {notifications.filter(n => !n.read).length > 0 && (
-                    <span className="bg-[#ef4444] text-white text-[9px] px-1.5 py-0.5 rounded-full">
+                    <span className="bg-[#ef4444] text-white text-xs px-1.5 py-0.5 rounded-full">
                       {notifications.filter(n => !n.read).length}
                     </span>
                   )}
@@ -644,12 +740,12 @@ export default function Home() {
             {showNotifications && (
               <div className="space-y-1 max-h-[200px] overflow-y-auto">
                 {notifications.length === 0 && (
-                  <p className="text-[10px] text-[#555]">Aucune notification</p>
+                  <p className="text-xs text-[#555]">Aucune notification</p>
                 )}
                 {notifications.map((notif) => (
                   <div 
                     key={notif.id} 
-                    className={`text-xs p-2 rounded border-l-2 cursor-pointer transition-opacity ${
+                    className={`text-sm p-2 rounded border-l-2 cursor-pointer transition-opacity ${
                       notif.read ? 'opacity-50' : 'opacity-100'
                     } ${
                       notif.type === 'success' ? 'border-l-[#10b981] bg-[#10b981]/10' : 
@@ -669,7 +765,7 @@ export default function Home() {
                     }}
                   >
                     <span className="block truncate">{notif.message}</span>
-                    <span className="text-[10px] text-[#888]">
+                    <span className="text-xs text-[#888]">
                       {notif.createdAt.toLocaleTimeString()}
                     </span>
                   </div>
@@ -677,7 +773,7 @@ export default function Home() {
                 {notifications.length > 0 && (
                   <button 
                     onClick={() => setNotifications([])}
-                    className="text-[10px] text-[#888] hover:text-white mt-2 w-full text-center"
+                    className="text-xs text-[#888] hover:text-white mt-2 w-full text-center"
                   >
                     Effacer tout
                   </button>
@@ -687,10 +783,10 @@ export default function Home() {
           </div>
 
           <div className="mb-6">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Administration & Audit</h2>
+            <h2 className="text-sm font-mono uppercase tracking-wider text-[#888] mb-3">Administration & Audit</h2>
             <div className="space-y-1">
               {auditLogs.slice(0, 5).map((log) => (
-                <div key={log.id} className="flex flex-col text-xs text-[#666] border-b pb-1 mb-1" style={{ borderColor: "var(--border-color)" }}>
+                <div key={log.id} className="flex flex-col text-sm text-[#666] border-b pb-1 mb-1" style={{ borderColor: "var(--border-color)" }}>
                   <span className="truncate">{log.action}</span>
                   <span>par : {log.actor || "-"}</span>
                 </div>
@@ -710,9 +806,9 @@ export default function Home() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-14 border-b flex items-center justify-between px-6 shrink-0" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-primary)" }}>
           <div className="flex items-center gap-3">
-            <span className="font-mono text-sm px-2 py-0.5 rounded bg-[#111] border text-[#fff]" style={{ borderColor: "var(--border-color)" }}># Espace de travail</span>
+                <span className="font-mono text-base px-2 py-0.5 rounded bg-[#111] border text-[#fff]" style={{ borderColor: "var(--border-color)" }}># Espace de travail</span>
           </div>
-          <button className="btn text-xs text-[#888]" onClick={() => { window.localStorage.clear(); window.location.reload(); }}>Déconnexion</button>
+          <button className="btn text-base text-[#888]" onClick={() => { window.localStorage.clear(); window.location.reload(); }}>Déconnexion</button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 lg:p-8 flex flex-col items-center" style={{ backgroundColor: "var(--bg-primary)" }}>
@@ -730,7 +826,7 @@ export default function Home() {
                 
                 <div className="flex flex-wrap gap-2 p-3 rounded bg-black border" style={{ borderColor: "var(--border-color)" }}>
                   <div className="flex flex-wrap gap-2 flex-1">
-                    <select className="input !w-auto text-xs py-1" value={provider} onChange={(e) => { setProvider(e.target.value); setModelName(PROVIDER_MODELS[e.target.value]?.[0] || ""); }}>
+                    <select className="input !w-auto text-sm py-2" value={provider} onChange={(e) => { setProvider(e.target.value); setModelName(PROVIDER_MODELS[e.target.value]?.[0] || ""); }}>
                       <option value="ollama">Ollama (Local)</option>
                       <option value="openai">OpenAI</option>
                       <option value="gemini">Gemini</option>
@@ -738,13 +834,13 @@ export default function Home() {
                       <option value="anthropic">Anthropic</option>
                     </select>
                     
-                    <select className="input !w-auto text-xs py-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                    <select className="input !w-auto text-sm py-2" value={modelName} onChange={(e) => setModelName(e.target.value)}>
                       {(!PROVIDER_MODELS[provider]?.includes(modelName) && modelName !== "") && <option value={modelName}>{modelName}</option>}
                       {(PROVIDER_MODELS[provider] || []).map((m) => (<option key={m} value={m}>{m}</option>))}
                       <option value="custom">Custom...</option>
                     </select>
 
-                    <select className="input !w-auto text-xs py-1" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
+                    <select className="input !w-auto text-sm py-2" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
                       <option value="">Délégation auto</option>
                       {agents.map((agent) => (<option key={agent.id} value={agent.id}>{agent.name} ({agent.kind})</option>))}
                     </select>
@@ -755,41 +851,41 @@ export default function Home() {
                           <button
                             type="button"
                             onClick={() => setApiKey(savedApiKeys[provider])}
-                            className="btn !py-1 text-xs text-[#10b981] border-[#10b981]/50 hover:bg-[#10b981]/10 whitespace-nowrap"
+                            className="btn !py-2 text-sm text-[#10b981] border-[#10b981]/50 hover:bg-[#10b981]/10 whitespace-nowrap"
                             title="Utiliser la clé sauvegardée"
                           >
                             Clé sauvegardée
                           </button>
                         )}
-                        <input 
-                          className="input !w-auto text-xs py-1 flex-1 min-w-[120px]" 
-                          type="password" 
-                          value={apiKey} 
-                          onChange={(e) => setApiKey(e.target.value)} 
-                          placeholder={savedApiKeys[provider] ? "Clé API (modifiée)" : "Clé API"} 
-                          required 
+                        <input
+                          className="input !w-auto text-sm py-2 flex-1 min-w-[120px]"
+                          type="password"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          placeholder={savedApiKeys[provider] ? "Clé API (modifiée)" : "Clé API"}
+                          required
                         />
                       </div>
                     ) : (
-                      <div className="text-xs flex items-center text-[#ff5c00] opacity-80 px-2 font-mono border-l border-[#333] pl-3">Aucune clé API requise</div>
+                      <div className="text-sm flex items-center text-[#ff5c00] opacity-80 px-2 font-mono border-l border-[#333] pl-3">Aucune clé API requise</div>
                     )}
                   </div>
                 </div>
                 
                 <div className="flex justify-end gap-2 mt-1 flex-wrap">
-                  <button 
-                    type="button" 
+                  <button
+                    type="button"
                     onClick={() => setIsBatchMode(!isBatchMode)}
-                    className={`btn text-xs ${isBatchMode ? 'border-[#ff5c00] text-[#ff5c00]' : ''}`}
+                    className={`btn text-sm ${isBatchMode ? 'border-[#ff5c00] text-[#ff5c00]' : ''}`}
                   >
                     {isBatchMode ? "Mode simple" : "Mode batch"}
                   </button>
                   
                   {isBatchMode ? (
-                    <button 
-                      type="button" 
+                    <button
+                      type="button"
                       onClick={addToBatch}
-                      className="btn text-xs border-[#10b981] text-[#10b981]"
+                      className="btn text-sm border-[#10b981] text-[#10b981]"
                       disabled={!taskTitle.trim() || !taskPrompt.trim()}
                     >
                       + Ajouter à la file ({batchTasks.length})
@@ -812,10 +908,10 @@ export default function Home() {
                 
                 {isBatchMode && batchTasks.length > 0 && (
                   <div className="mt-4 p-3 rounded bg-black/50 border" style={{ borderColor: "var(--border-color)" }}>
-                    <h3 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-2">File d'attente ({batchTasks.length})</h3>
+                    <h3 className="text-sm font-mono uppercase tracking-wider text-[#888] mb-2">File d'attente ({batchTasks.length})</h3>
                     <div className="space-y-1 max-h-[150px] overflow-y-auto">
                       {batchTasks.map((t, i) => (
-                        <div key={i} className="flex items-center justify-between text-xs p-2 rounded bg-[#111]">
+                        <div key={i} className="flex items-center justify-between text-sm p-2 rounded bg-[#111]">
                           <span className="truncate flex-1 mr-2">{t.title}</span>
                           <button 
                             onClick={() => removeFromBatch(i)}
@@ -841,10 +937,10 @@ export default function Home() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs text-[#666]">DOC-{task.id}</span>
+                          <span className="font-mono text-sm text-[#666]">DOC-{task.id}</span>
                           <h3 className="font-medium text-white truncate text-base font-serif">{task.title}</h3>
                         </div>
-                        <p className="text-xs text-[#888] font-mono uppercase tracking-wider">
+                        <p className="text-sm text-[#888] font-mono uppercase tracking-wider">
                           Assigné à : {task.assigned_agent_name || "Routeur"}
                         </p>
                       </div>
@@ -858,7 +954,7 @@ export default function Home() {
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>
                           </div>
                         ) : (
-                          <pre className="whitespace-pre-wrap font-mono text-xs text-[#ccc]">
+                          <pre className="whitespace-pre-wrap font-mono text-sm text-[#ccc]">
                             {safeStringResult(task.result)}
                           </pre>
                         )}
@@ -866,29 +962,29 @@ export default function Home() {
                     )}
 
                     {task.error_message && (
-                      <div className="mt-1 text-xs text-[#ef4444] font-mono whitespace-pre-wrap bg-[#ef4444]/10 p-2 rounded">
+                      <div className="mt-1 text-sm text-[#ef4444] font-mono whitespace-pre-wrap bg-[#ef4444]/10 p-2 rounded">
                         {task.error_message}
                       </div>
                     )}
 
                     <div className="flex justify-end gap-2 mt-2">
                       {(task.status === "queued" || task.status === "running") && (
-                        <button className="btn !py-1 text-xs hover:text-[#ef4444] hover:border-[#ef4444] hover:bg-[#ef4444]/10" onClick={() => cancelTask(task.id)}>Annuler</button>
+                        <button className="btn !py-2 text-sm hover:text-[#ef4444] hover:border-[#ef4444] hover:bg-[#ef4444]/10" onClick={() => cancelTask(task.id)}>Annuler</button>
                       )}
                       {(task.status === "failed" || task.status === "cancelled") && (
-                        <button className="btn !py-1 text-xs" onClick={() => retryTask(task.id)}>Réessayer</button>
+                        <button className="btn !py-2 text-sm border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/10" onClick={() => openRetryModal(task)}>🔄 Relancer avec options</button>
                       )}
                       {task.status === "done" && (
                         <>
-                          <button className="btn !py-1 text-xs" onClick={() => { setStudioTask(task); setStudioContent(safeStringResult(task.result)); }}>
+                          <button className="btn !py-2 text-sm" onClick={() => { setStudioTask(task); setStudioContent(safeStringResult(task.result)); }}>
                             Ouvrir dans le Studio
                           </button>
                           {!task.is_approved && (
-                            <button className="btn !py-1 text-xs border-[#10b981] text-[#10b981] hover:bg-[#10b981]/10" onClick={() => approveTask(task)}>
+                            <button className="btn !py-2 text-sm border-[#10b981] text-[#10b981] hover:bg-[#10b981]/10" onClick={() => approveTask(task)}>
                               Approuver
                             </button>
                           )}
-                          {task.is_approved && <span className="text-[#10b981] text-xs self-center font-mono uppercase tracking-widest bg-[#10b981]/10 px-2 py-0.5 rounded">Approuvé</span>}
+                          {task.is_approved && <span className="text-[#10b981] text-sm self-center font-mono uppercase tracking-widest bg-[#10b981]/10 px-2 py-0.5 rounded">Approuvé</span>}
                         </>
                       )}
                     </div>
@@ -907,7 +1003,7 @@ export default function Home() {
           <div className="w-full max-w-5xl max-h-[90vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-secondary)" }}>
             <div className="flex items-center justify-between p-4 border-b bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
               <div className="flex items-center gap-3">
-                <span className="font-mono text-xs text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">DOC-{studioTask.id}</span>
+                <span className="font-mono text-sm text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">DOC-{studioTask.id}</span>
                 <h2 className="text-lg font-serif">Studio : {studioTask.title}</h2>
               </div>
               <button className="text-[#888] hover:text-white transition-colors text-xl leading-none" onClick={() => setStudioTask(null)}>✕</button>
@@ -920,7 +1016,7 @@ export default function Home() {
                   {typeof studioContent === "string" && !studioContent.startsWith("Error:") ? (
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{studioContent}</ReactMarkdown>
                   ) : (
-                    <pre className="whitespace-pre-wrap font-mono text-xs text-[#ccc]">
+                    <pre className="whitespace-pre-wrap font-mono text-sm text-[#ccc]">
                       {safeStringResult(studioContent)}
                     </pre>
                   )}
@@ -928,7 +1024,7 @@ export default function Home() {
               </div>
               {/* Editor side */}
               <div className="w-[450px] flex flex-col bg-[#050505]">
-                <div className="p-3 border-b text-[10px] font-mono uppercase tracking-widest text-[#666] bg-[#0a0a0a]" style={{ borderColor: "var(--border-color)" }}>Markdown brut</div>
+                <div className="p-3 border-b text-xs font-mono uppercase tracking-widest text-[#666] bg-[#0a0a0a]" style={{ borderColor: "var(--border-color)" }}>Markdown brut</div>
                 <textarea
                   className="flex-1 w-full bg-transparent text-[#ddd] p-4 font-mono text-sm leading-relaxed focus:outline-none resize-none"
                   value={studioContent}
@@ -940,15 +1036,196 @@ export default function Home() {
 
             <div className="p-4 border-t flex justify-between items-center bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
               <div className="flex gap-2">
-                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("docx")}>⭳ DOCX</button>
-                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("pdf")}>⭳ PDF</button>
-                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("xlsx")}>⭳ XLSX</button>
+                <button className="btn !py-2 text-sm text-[#888] hover:text-white" onClick={() => handleExport("docx")}>⭳ DOCX</button>
+                <button className="btn !py-2 text-sm text-[#888] hover:text-white" onClick={() => handleExport("pdf")}>⭳ PDF</button>
+                <button className="btn !py-2 text-sm text-[#888] hover:text-white" onClick={() => handleExport("xlsx")}>⭳ XLSX</button>
               </div>
               <div className="flex gap-3">
                 <button className="btn" onClick={() => setStudioTask(null)}>Fermer</button>
                 <button className="btn primary" onClick={saveStudioResult} disabled={busy}>Enregistrer les modifications</button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Agent Editor Modal */}
+      {editingAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-secondary)" }}>
+            <div className="flex items-center justify-between p-4 border-b bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-sm text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">AGENT-{editingAgent.id}</span>
+                <h2 className="text-lg font-serif">Configuration de l'agent</h2>
+              </div>
+              <button className="text-[#888] hover:text-white transition-colors text-xl leading-none" onClick={closeAgentEditor}>✕</button>
+            </div>
+
+            <form onSubmit={updateAgent} className="p-4 space-y-4 overflow-y-auto">
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Nom</label>
+                <input
+                  className="input w-full"
+                  value={editAgentName}
+                  onChange={(e) => setEditAgentName(e.target.value)}
+                  placeholder="Nom de l'agent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Type</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className={`btn flex-1 ${editAgentKind === 'primary' ? 'primary' : ''}`}
+                    onClick={() => setEditAgentKind('primary')}
+                  >
+                    Principal
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn flex-1 ${editAgentKind === 'sub' ? 'primary' : ''}`}
+                    onClick={() => setEditAgentKind('sub')}
+                  >
+                    Subordonné
+                  </button>
+                </div>
+              </div>
+
+              {editAgentKind === 'sub' && (
+                <div>
+                  <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Parent</label>
+                  <select
+                    className="input w-full"
+                    value={editAgentParentId}
+                    onChange={(e) => setEditAgentParentId(e.target.value)}
+                  >
+                    <option value="">Aucun parent</option>
+                    {primaryAgents.map((parent) => (
+                      <option key={parent.id} value={parent.id}>
+                        {parent.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Spécialité</label>
+                <input
+                  className="input w-full"
+                  value={editAgentSpecialty}
+                  onChange={(e) => setEditAgentSpecialty(e.target.value)}
+                  placeholder="ex: Analyse financière, Rédaction technique..."
+                />
+              </div>
+
+              <div className="flex items-center gap-3 p-3 rounded border" style={{ borderColor: "var(--border-color)" }}>
+                <input
+                  type="checkbox"
+                  id="isActive"
+                  checked={editAgentIsActive}
+                  onChange={(e) => setEditAgentIsActive(e.target.checked)}
+                  className="w-4 h-4 accent-[#ff5c00]"
+                />
+                <label htmlFor="isActive" className="text-base cursor-pointer">
+                  Agent actif
+                </label>
+              </div>
+
+              <div className="pt-4 border-t flex gap-3" style={{ borderColor: "var(--border-color)" }}>
+                <button type="button" className="btn" onClick={closeAgentEditor}>Annuler</button>
+                <button type="submit" className="btn primary flex-1" disabled={busy}>
+                  {busy ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Retry Modal with Re-configuration */}
+      {retryTaskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-lg max-h-[90vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-secondary)" }}>
+            <div className="flex items-center justify-between p-4 border-b bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-sm text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">DOC-{retryTaskModal.id}</span>
+                <h2 className="text-lg font-serif">Relancer avec nouveaux paramètres</h2>
+              </div>
+              <button className="text-[#888] hover:text-white transition-colors text-xl leading-none" onClick={closeRetryModal}>✕</button>
+            </div>
+
+            <form onSubmit={retryWithNewParams} className="p-4 space-y-4 overflow-y-auto">
+              <div className="bg-[#ef4444]/10 border border-[#ef4444]/30 rounded p-3 mb-4">
+                <p className="text-sm text-[#ef4444]">
+                  <strong>Erreur précédente :</strong> {retryTaskModal.error_message || "Erreur inconnue"}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Agent assigné</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryAgentId}
+                  onChange={(e) => setRetryAgentId(e.target.value)}
+                >
+                  <option value="">Délégation automatique</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name} ({agent.kind}){agent.specialty ? ` - ${agent.specialty}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Provider LLM</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryProvider}
+                  onChange={(e) => {
+                    setRetryProvider(e.target.value);
+                    setRetryModel(PROVIDER_MODELS[e.target.value]?.[0] || "");
+                  }}
+                >
+                  <option value="ollama">Ollama (Local)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="grok">xAI Grok</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm text-[#888] mb-1 block uppercase tracking-wider">Modèle</label>
+                <select
+                  className="input w-full text-sm py-2"
+                  value={retryModel}
+                  onChange={(e) => setRetryModel(e.target.value)}
+                >
+                  {PROVIDER_MODELS[retryProvider]?.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                  <option value="custom">Custom...</option>
+                </select>
+                {retryModel === "custom" && (
+                  <input
+                    className="input w-full text-sm py-2 mt-2"
+                    placeholder="Nom du modèle personnalisé..."
+                    onChange={(e) => setRetryModel(e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div className="pt-4 border-t flex gap-3" style={{ borderColor: "var(--border-color)" }}>
+                <button type="button" className="btn" onClick={closeRetryModal}>Annuler</button>
+                <button type="submit" className="btn primary flex-1" disabled={busy}>
+                  {busy ? "Relancement..." : "🚀 Relancer la tâche"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
