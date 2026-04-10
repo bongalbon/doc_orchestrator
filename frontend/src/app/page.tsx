@@ -1,6 +1,7 @@
 "use client";
 
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -48,8 +49,33 @@ type AuditEntry = {
   created_at: string;
 };
 
+type Notification = {
+  id: number;
+  type: "success" | "error" | "info";
+  message: string;
+  taskId?: number;
+  createdAt: Date;
+  read: boolean;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8008/api";
 const WS_BASE = API_BASE.replace("http://", "ws://").replace("https://", "wss://").replace(/\/api$/, "");
+
+function safeStringResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result === null || result === undefined) return "";
+  if (result instanceof Error) return result.toString();
+  if (typeof result === "object") {
+    try {
+      const str = JSON.stringify(result, null, 2);
+      if (str !== "{}") return str;
+      return Object.prototype.toString.call(result);
+    } catch {
+      return String(result);
+    }
+  }
+  return String(result);
+}
 
 function authHeaders(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -118,6 +144,15 @@ export default function Home() {
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditEntry[]>([]);
   const [apiKey, setApiKey] = useState("");
+  const [savedApiKeys, setSavedApiKeys] = useState<Record<string, string>>({});
+  const [newApiProvider, setNewApiProvider] = useState("openai");
+  const [newApiKey, setNewApiKey] = useState("");
+  const [showApiKeys, setShowApiKeys] = useState(false);
+  const [batchTasks, setBatchTasks] = useState<Array<{ title: string; prompt: string }>>([]);
+  const [isBatchMode, setIsBatchMode] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [prevTasks, setPrevTasks] = useState<AgentTask[]>([]);
   const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
   const [studioContent, setStudioContent] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -157,6 +192,10 @@ export default function Home() {
   useEffect(() => {
     const token = window.localStorage.getItem("jwtAccess") || window.localStorage.getItem("authToken");
     setLoggedIn(Boolean(token));
+    const storedKeys = window.localStorage.getItem("apiKeys");
+    if (storedKeys) {
+      setSavedApiKeys(JSON.parse(storedKeys));
+    }
     if (token) {
       loadAll().catch(console.error);
       const ws = new WebSocket(`${WS_BASE}/ws/activity/`);
@@ -166,6 +205,42 @@ export default function Home() {
       return () => ws.close();
     }
   }, []);
+
+  // Check for completed tasks and send notifications
+  useEffect(() => {
+    if (prevTasks.length > 0 && tasks.length > 0) {
+      const newlyCompleted = tasks.filter(
+        (t) => t.status === "done" && prevTasks.find((pt) => pt.id === t.id && pt.status !== "done")
+      );
+      const newlyFailed = tasks.filter(
+        (t) => t.status === "failed" && prevTasks.find((pt) => pt.id === t.id && pt.status !== "failed")
+      );
+
+      const newNotifications: Notification[] = [
+        ...newlyCompleted.map((t) => ({
+          id: Date.now() + t.id,
+          type: "success" as const,
+          message: `Tâche "${t.title}" terminée`,
+          taskId: t.id,
+          createdAt: new Date(),
+          read: false,
+        })),
+        ...newlyFailed.map((t) => ({
+          id: Date.now() + t.id + 10000,
+          type: "error" as const,
+          message: `Tâche "${t.title}" a échoué`,
+          taskId: t.id,
+          createdAt: new Date(),
+          read: false,
+        })),
+      ];
+
+      if (newNotifications.length > 0) {
+        setNotifications((prev) => [...newNotifications, ...prev].slice(0, 20));
+      }
+    }
+    setPrevTasks(tasks);
+  }, [tasks]);
 
   useEffect(() => {
     if (provider === "ollama") {
@@ -235,8 +310,8 @@ export default function Home() {
     }
   }
 
-  async function createTask(e: FormEvent) {
-    e.preventDefault();
+  async function createTask(e?: FormEvent) {
+    if (e) e.preventDefault();
     setBusy(true);
     try {
       await apiPost<AgentTask>("/tasks/", {
@@ -248,6 +323,42 @@ export default function Home() {
         requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
       });
       setTaskPrompt("");
+      if (!isBatchMode) setApiKey("");
+      await loadAll();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function addToBatch() {
+    if (!taskTitle.trim() || !taskPrompt.trim()) return;
+    setBatchTasks([...batchTasks, { title: taskTitle.trim(), prompt: taskPrompt.trim() }]);
+    setTaskTitle("Rédiger la note stratégique");
+    setTaskPrompt("");
+  }
+
+  function removeFromBatch(index: number) {
+    setBatchTasks(batchTasks.filter((_, i) => i !== index));
+  }
+
+  async function createBatchTasks() {
+    if (batchTasks.length === 0) return;
+    setBusy(true);
+    try {
+      await Promise.all(
+        batchTasks.map((t) =>
+          apiPost<AgentTask>("/tasks/", {
+            title: t.title,
+            prompt: t.prompt,
+            provider,
+            model_name: modelName,
+            api_key: apiKey,
+            requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
+          })
+        )
+      );
+      setBatchTasks([]);
+      setIsBatchMode(false);
       setApiKey("");
       await loadAll();
     } finally {
@@ -293,6 +404,30 @@ export default function Home() {
       body: JSON.stringify({ is_approved: true }),
     });
     await loadAll();
+  }
+
+  function saveApiKey() {
+    if (!newApiKey.trim()) return;
+    const updated = { ...savedApiKeys, [newApiProvider]: newApiKey.trim() };
+    setSavedApiKeys(updated);
+    window.localStorage.setItem("apiKeys", JSON.stringify(updated));
+    setNewApiKey("");
+  }
+
+  function deleteApiKey(provider: string) {
+    const updated = { ...savedApiKeys };
+    delete updated[provider];
+    setSavedApiKeys(updated);
+    window.localStorage.setItem("apiKeys", JSON.stringify(updated));
+    if (apiKey === savedApiKeys[provider]) {
+      setApiKey("");
+    }
+  }
+
+  function applySavedKey(provider: string) {
+    if (savedApiKeys[provider]) {
+      setApiKey(savedApiKeys[provider]);
+    }
   }
 
   const handleExport = async (format: "docx" | "pdf" | "xlsx") => {
@@ -355,21 +490,51 @@ export default function Home() {
 
         <div className="p-4 flex-1">
           <div className="mb-6">
-            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Activité en direct</h2>
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Agents disponibles</h2>
             <div className="flex flex-wrap gap-1.5 mb-3">
-              {activity.active_agents.length ? (
-                activity.active_agents.map((a) => <span key={a} className="chip">{a}</span>)
+              {agents.length ? (
+                agents.map((a) => {
+                  const isRunning = activity.active_agents.includes(a.name);
+                  return (
+                    <span 
+                      key={a.id} 
+                      className={`chip relative ${isRunning ? 'animate-pulse ring-2 ring-[#ff5c00] ring-offset-1 ring-offset-black' : ''}`}
+                      title={`${a.name} - ${a.specialty || 'Spécialité générale'}${isRunning ? ' (En cours)' : ''}`}
+                    >
+                      {a.name}
+                      {isRunning && (
+                        <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#10b981] rounded-full animate-ping"></span>
+                      )}
+                    </span>
+                  );
+                })
               ) : (
-                <span className="text-xs text-[#555]">Aucun agent en cours</span>
+                <span className="text-xs text-[#555]">Aucun agent créé</span>
               )}
             </div>
-            <ul className="space-y-1.5">
+          </div>
+
+          <div className="mb-6">
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">
+              Activité en direct
+              {activity.running_tasks.length > 0 && (
+                <span className="ml-2 text-[#ff5c00] animate-pulse">●</span>
+              )}
+            </h2>
+            <ul className="space-y-2">
               {activity.running_tasks.map((row) => (
-                <li key={row.task_id} className="text-xs border p-1.5 rounded truncate flex flex-col" style={{ borderColor: "var(--border-color)" }}>
-                  <span className="text-white block truncate">{row.title}</span>
-                  <span className="text-[#888]">{row.agent_name}</span>
+                <li key={row.task_id} className="text-xs border p-2 rounded flex flex-col relative overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#ff5c00]/10 via-[#ff5c00]/5 to-transparent animate-pulse"></div>
+                  <div className="relative flex items-center gap-2">
+                    <span className="w-2 h-2 bg-[#ff5c00] rounded-full animate-spin"></span>
+                    <span className="text-white block truncate flex-1">{row.title}</span>
+                  </div>
+                  <span className="relative text-[#ff5c00] mt-1">@{row.agent_name}</span>
                 </li>
               ))}
+              {activity.running_tasks.length === 0 && (
+                <li className="text-xs text-[#555] italic">Aucune tâche en cours</li>
+              )}
             </ul>
           </div>
 
@@ -387,6 +552,141 @@ export default function Home() {
           </div>
 
           <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-mono uppercase tracking-wider text-[#888]">Clés API</h2>
+              <button 
+                onClick={() => setShowApiKeys(!showApiKeys)}
+                className="text-[10px] text-[#ff5c00] hover:text-[#ff7c33]"
+              >
+                {showApiKeys ? "Masquer" : "Gérer"}
+              </button>
+            </div>
+            
+            {showApiKeys && (
+              <div className="space-y-2 mb-3 p-2 rounded bg-black/50 border" style={{ borderColor: "var(--border-color)" }}>
+                <div className="flex flex-col gap-1">
+                  <select 
+                    className="input !py-1 !px-2 text-xs"
+                    value={newApiProvider}
+                    onChange={(e) => setNewApiProvider(e.target.value)}
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="grok">xAI Grok</option>
+                  </select>
+                  <input
+                    type="password"
+                    className="input !py-1 !px-2 text-xs"
+                    placeholder="Nouvelle clé API..."
+                    value={newApiKey}
+                    onChange={(e) => setNewApiKey(e.target.value)}
+                  />
+                  <button 
+                    onClick={saveApiKey}
+                    className="btn !py-1 text-xs"
+                    disabled={!newApiKey.trim()}
+                  >
+                    Sauvegarder
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {Object.keys(savedApiKeys).length > 0 && (
+              <div className="space-y-1">
+                {Object.entries(savedApiKeys).map(([prov, key]) => (
+                  <div key={prov} className="flex items-center justify-between text-xs">
+                    <span className="text-[#888] capitalize">{prov}</span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => { setProvider(prov); setApiKey(key); }}
+                        className="text-[#10b981] hover:text-[#10b981]/80"
+                        title="Utiliser cette clé"
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={() => deleteApiKey(prov)}
+                        className="text-[#ef4444] hover:text-[#ef4444]/80"
+                        title="Supprimer"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {Object.keys(savedApiKeys).length === 0 && (
+              <p className="text-[10px] text-[#555]">Aucune clé sauvegardée</p>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-mono uppercase tracking-wider text-[#888]">Notifications</h2>
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="relative text-[10px] text-[#ff5c00] hover:text-[#ff7c33]"
+              >
+                <span className="flex items-center gap-1">
+                  🔔
+                  {notifications.filter(n => !n.read).length > 0 && (
+                    <span className="bg-[#ef4444] text-white text-[9px] px-1.5 py-0.5 rounded-full">
+                      {notifications.filter(n => !n.read).length}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </div>
+            
+            {showNotifications && (
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {notifications.length === 0 && (
+                  <p className="text-[10px] text-[#555]">Aucune notification</p>
+                )}
+                {notifications.map((notif) => (
+                  <div 
+                    key={notif.id} 
+                    className={`text-xs p-2 rounded border-l-2 cursor-pointer transition-opacity ${
+                      notif.read ? 'opacity-50' : 'opacity-100'
+                    } ${
+                      notif.type === 'success' ? 'border-l-[#10b981] bg-[#10b981]/10' : 
+                      notif.type === 'error' ? 'border-l-[#ef4444] bg-[#ef4444]/10' : 
+                      'border-l-[#ff5c00] bg-[#ff5c00]/10'
+                    }`}
+                    style={{ borderColor: "var(--border-color)" }}
+                    onClick={() => {
+                      setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, read: true } : n));
+                      if (notif.taskId) {
+                        const task = tasks.find(t => t.id === notif.taskId);
+                        if (task) {
+                          setStudioTask(task);
+                          setStudioContent(safeStringResult(task.result));
+                        }
+                      }
+                    }}
+                  >
+                    <span className="block truncate">{notif.message}</span>
+                    <span className="text-[10px] text-[#888]">
+                      {notif.createdAt.toLocaleTimeString()}
+                    </span>
+                  </div>
+                ))}
+                {notifications.length > 0 && (
+                  <button 
+                    onClick={() => setNotifications([])}
+                    className="text-[10px] text-[#888] hover:text-white mt-2 w-full text-center"
+                  >
+                    Effacer tout
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="mb-6">
             <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Administration & Audit</h2>
             <div className="space-y-1">
               {auditLogs.slice(0, 5).map((log) => (
@@ -396,6 +696,12 @@ export default function Home() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="mb-6">
+            <Link href="/tasks" className="btn primary w-full text-center block">
+              📋 Voir toutes les tâches
+            </Link>
           </div>
         </div>
       </aside>
@@ -423,35 +729,106 @@ export default function Home() {
                 <textarea className="input min-h-[100px] resize-y text-sm text-white focus:border-[#555]" value={taskPrompt} onChange={(e) => setTaskPrompt(e.target.value)} placeholder="Décrivez le travail à effectuer..." required />
                 
                 <div className="flex flex-wrap gap-2 p-3 rounded bg-black border" style={{ borderColor: "var(--border-color)" }}>
-                  <select className="input !w-auto text-xs py-1" value={provider} onChange={(e) => { setProvider(e.target.value); setModelName(PROVIDER_MODELS[e.target.value]?.[0] || ""); }}>
-                    <option value="ollama">Ollama (Local)</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="gemini">Gemini</option>
-                    <option value="grok">xAI Grok</option>
-                    <option value="anthropic">Anthropic</option>
-                  </select>
+                  <div className="flex flex-wrap gap-2 flex-1">
+                    <select className="input !w-auto text-xs py-1" value={provider} onChange={(e) => { setProvider(e.target.value); setModelName(PROVIDER_MODELS[e.target.value]?.[0] || ""); }}>
+                      <option value="ollama">Ollama (Local)</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="grok">xAI Grok</option>
+                      <option value="anthropic">Anthropic</option>
+                    </select>
+                    
+                    <select className="input !w-auto text-xs py-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                      {(!PROVIDER_MODELS[provider]?.includes(modelName) && modelName !== "") && <option value={modelName}>{modelName}</option>}
+                      {(PROVIDER_MODELS[provider] || []).map((m) => (<option key={m} value={m}>{m}</option>))}
+                      <option value="custom">Custom...</option>
+                    </select>
+
+                    <select className="input !w-auto text-xs py-1" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
+                      <option value="">Délégation auto</option>
+                      {agents.map((agent) => (<option key={agent.id} value={agent.id}>{agent.name} ({agent.kind})</option>))}
+                    </select>
+
+                    {provider !== "ollama" ? (
+                      <div className="flex gap-2 flex-1 min-w-[150px] max-w-[300px]">
+                        {savedApiKeys[provider] && (
+                          <button
+                            type="button"
+                            onClick={() => setApiKey(savedApiKeys[provider])}
+                            className="btn !py-1 text-xs text-[#10b981] border-[#10b981]/50 hover:bg-[#10b981]/10 whitespace-nowrap"
+                            title="Utiliser la clé sauvegardée"
+                          >
+                            Clé sauvegardée
+                          </button>
+                        )}
+                        <input 
+                          className="input !w-auto text-xs py-1 flex-1 min-w-[120px]" 
+                          type="password" 
+                          value={apiKey} 
+                          onChange={(e) => setApiKey(e.target.value)} 
+                          placeholder={savedApiKeys[provider] ? "Clé API (modifiée)" : "Clé API"} 
+                          required 
+                        />
+                      </div>
+                    ) : (
+                      <div className="text-xs flex items-center text-[#ff5c00] opacity-80 px-2 font-mono border-l border-[#333] pl-3">Aucune clé API requise</div>
+                    )}
+                  </div>
+                </div>
+                
+                <div className="flex justify-end gap-2 mt-1 flex-wrap">
+                  <button 
+                    type="button" 
+                    onClick={() => setIsBatchMode(!isBatchMode)}
+                    className={`btn text-xs ${isBatchMode ? 'border-[#ff5c00] text-[#ff5c00]' : ''}`}
+                  >
+                    {isBatchMode ? "Mode simple" : "Mode batch"}
+                  </button>
                   
-                  <select className="input !w-auto text-xs py-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
-                    {(!PROVIDER_MODELS[provider]?.includes(modelName) && modelName !== "") && <option value={modelName}>{modelName}</option>}
-                    {(PROVIDER_MODELS[provider] || []).map((m) => (<option key={m} value={m}>{m}</option>))}
-                    <option value="custom">Custom...</option>
-                  </select>
-
-                  <select className="input !w-auto text-xs py-1" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
-                    <option value="">Délégation auto</option>
-                    {agents.map((agent) => (<option key={agent.id} value={agent.id}>{agent.name} ({agent.kind})</option>))}
-                  </select>
-
-                  {provider !== "ollama" ? (
-                    <input className="input !w-auto text-xs py-1 flex-1 min-w-[200px]" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Clé API" required />
+                  {isBatchMode ? (
+                    <button 
+                      type="button" 
+                      onClick={addToBatch}
+                      className="btn text-xs border-[#10b981] text-[#10b981]"
+                      disabled={!taskTitle.trim() || !taskPrompt.trim()}
+                    >
+                      + Ajouter à la file ({batchTasks.length})
+                    </button>
                   ) : (
-                    <div className="text-xs flex items-center text-[#ff5c00] opacity-80 px-2 font-mono border-l border-[#333] pl-3">Aucune clé API requise</div>
+                    <button className="btn primary px-6" disabled={busy}>Assigner</button>
+                  )}
+                  
+                  {isBatchMode && batchTasks.length > 0 && (
+                    <button 
+                      type="button" 
+                      onClick={createBatchTasks}
+                      className="btn primary"
+                      disabled={busy}
+                    >
+                      Lancer {batchTasks.length} tâche(s)
+                    </button>
                   )}
                 </div>
                 
-                <div className="flex justify-end mt-1">
-                  <button className="btn primary px-6" disabled={busy}>Assigner</button>
-                </div>
+                {isBatchMode && batchTasks.length > 0 && (
+                  <div className="mt-4 p-3 rounded bg-black/50 border" style={{ borderColor: "var(--border-color)" }}>
+                    <h3 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-2">File d'attente ({batchTasks.length})</h3>
+                    <div className="space-y-1 max-h-[150px] overflow-y-auto">
+                      {batchTasks.map((t, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs p-2 rounded bg-[#111]">
+                          <span className="truncate flex-1 mr-2">{t.title}</span>
+                          <button 
+                            onClick={() => removeFromBatch(i)}
+                            className="text-[#ef4444] hover:text-[#ef4444]/80"
+                            title="Retirer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </form>
             </section>
 
@@ -476,9 +853,15 @@ export default function Home() {
                     
                     {task.result && (
                       <div className="mt-2 p-4 rounded bg-black border text-sm text-[#ccc] max-h-[250px] overflow-y-auto" style={{ borderColor: "var(--border-color)" }}>
-                        <div className="prose prose-invert prose-sm max-w-none font-sans prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 first:prose-headings:mt-0">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>
-                        </div>
+                        {typeof task.result === "string" && !task.result.startsWith("Error:") ? (
+                          <div className="prose prose-invert prose-sm max-w-none font-sans prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 first:prose-headings:mt-0">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>
+                          </div>
+                        ) : (
+                          <pre className="whitespace-pre-wrap font-mono text-xs text-[#ccc]">
+                            {safeStringResult(task.result)}
+                          </pre>
+                        )}
                       </div>
                     )}
 
@@ -497,7 +880,7 @@ export default function Home() {
                       )}
                       {task.status === "done" && (
                         <>
-                          <button className="btn !py-1 text-xs" onClick={() => { setStudioTask(task); setStudioContent(task.result); }}>
+                          <button className="btn !py-1 text-xs" onClick={() => { setStudioTask(task); setStudioContent(safeStringResult(task.result)); }}>
                             Ouvrir dans le Studio
                           </button>
                           {!task.is_approved && (
@@ -534,7 +917,13 @@ export default function Home() {
               {/* Preview side */}
               <div className="flex-1 p-6 overflow-y-auto border-r bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
                 <div className="prose prose-invert prose-sm max-w-none font-sans prose-p:text-[#ccc] prose-headings:text-white">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{studioContent}</ReactMarkdown>
+                  {typeof studioContent === "string" && !studioContent.startsWith("Error:") ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{studioContent}</ReactMarkdown>
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-mono text-xs text-[#ccc]">
+                      {safeStringResult(studioContent)}
+                    </pre>
+                  )}
                 </div>
               </div>
               {/* Editor side */}
