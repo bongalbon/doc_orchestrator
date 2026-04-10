@@ -133,11 +133,12 @@ export default function Home() {
   const primaryAgents = useMemo(() => agents.filter((a) => a.kind === "primary"), [agents]);
 
   async function loadAll() {
-    const [agentData, taskData, activityData] = await Promise.all([
-      apiGet<Agent[]>("/agents/"),
-      apiGet<AgentTask[]>("/tasks/"),
-      apiGet<ActivityResponse>("/tasks/activity/"),
-    ]);
+    try {
+      const [agentData, taskData, activityData] = await Promise.all([
+        apiGet<Agent[]>("/agents/"),
+        apiGet<AgentTask[]>("/tasks/"),
+        apiGet<ActivityResponse>("/tasks/activity/"),
+      ]);
     setAgents(agentData);
     setTasks(taskData);
     setActivity(activityData);
@@ -147,10 +148,14 @@ export default function Home() {
     ]);
     setAdminUsers(usersData.users);
     setAuditLogs(logsData.logs);
+    } catch (err) {
+      console.error("Load failed, redirecting to login", err);
+      setLoggedIn(false);
+    }
   }
 
   useEffect(() => {
-    const token = window.localStorage.getItem("authToken");
+    const token = window.localStorage.getItem("jwtAccess") || window.localStorage.getItem("authToken");
     setLoggedIn(Boolean(token));
     if (token) {
       loadAll().catch(console.error);
@@ -172,32 +177,42 @@ export default function Home() {
 
   async function login(e: FormEvent) {
     e.preventDefault();
-    const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
-      username,
-      password,
-    });
-    window.localStorage.setItem("authToken", response.token);
-    if (response.access) window.localStorage.setItem("jwtAccess", response.access);
-    if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
-    setLoggedIn(true);
-    await loadAll();
+    try {
+      const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
+        username,
+        password,
+      });
+      window.localStorage.setItem("authToken", response.token);
+      if (response.access) window.localStorage.setItem("jwtAccess", response.access);
+      if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
+      setLoggedIn(true);
+      await loadAll();
+    } catch (err) {
+      console.error("Login failed", err);
+      alert("Identifiants incorrects ou serveur indisponible. Si c'est votre première connexion après reset, utilisez 'S'inscrire'.");
+    }
   }
 
   async function registerAndLogin() {
-    await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/register/", {
-      username,
-      password,
-      role: "manager",
-    });
-    const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
-      username,
-      password,
-    });
-    window.localStorage.setItem("authToken", response.token);
-    if (response.access) window.localStorage.setItem("jwtAccess", response.access);
-    if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
-    setLoggedIn(true);
-    await loadAll();
+    try {
+      await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/register/", {
+        username,
+        password,
+        role: "manager",
+      });
+      const response = await apiPost<{ token: string; access?: string; refresh?: string }>("/auth/login/", {
+        username,
+        password,
+      });
+      window.localStorage.setItem("authToken", response.token);
+      if (response.access) window.localStorage.setItem("jwtAccess", response.access);
+      if (response.refresh) window.localStorage.setItem("jwtRefresh", response.refresh);
+      setLoggedIn(true);
+      await loadAll();
+    } catch (err) {
+      console.error("Registration failed", err);
+      alert("Erreur lors de l'inscription. L'utilisateur existe peut-être déjà.");
+    }
   }
 
   async function createAgent(e: FormEvent) {
@@ -284,7 +299,7 @@ export default function Home() {
     if (!studioTask) return;
     const token = window.localStorage.getItem("jwtAccess");
     try {
-      const response = await fetch(`${API_BASE}/tasks/${studioTask.id}/export/${format}/`, {
+      const response = await fetch(`${API_BASE}/tasks/${studioTask.id}/export/?fmt=${format}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -306,16 +321,22 @@ export default function Home() {
 
   if (!loggedIn) {
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-xl items-center p-6">
-        <section className="panel w-full">
-          <h1 className="text-2xl font-bold">Connexion</h1>
-          <p className="text-sm text-slate-300">Authentifie-toi pour piloter les agents.</p>
-          <form className="mt-4 grid gap-3" onSubmit={login}>
-            <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username" />
-            <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" />
-            <button className="btn">Se connecter</button>
-            <button type="button" className="btn" onClick={registerAndLogin}>
-              Creer compte manager
+      <main className="flex min-h-screen w-full items-center justify-center p-6" style={{ backgroundColor: "var(--bg-primary)" }}>
+        <section className="panel w-full max-w-sm" style={{ border: "1px solid var(--border-color)", padding: "2rem" }}>
+          <h1 className="text-3xl font-serif mb-2">AI DOC ORCHESTRATOR</h1>
+          <p className="text-sm text-[#888888] mb-6">Entrez vos identifiants pour accéder à la plateforme.</p>
+          <form className="grid gap-4" onSubmit={login}>
+            <div>
+              <label className="text-xs text-[#888] mb-1 block uppercase tracking-wider">Nom d'utilisateur</label>
+              <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Nom d'utilisateur" />
+            </div>
+            <div>
+              <label className="text-xs text-[#888] mb-1 block uppercase tracking-wider">Mot de passe</label>
+              <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Mot de passe" />
+            </div>
+            <button className="btn primary w-full mt-2">Se connecter</button>
+            <button type="button" className="btn w-full opacity-60 text-xs" onClick={registerAndLogin}>
+              Créer un compte manager
             </button>
           </form>
         </section>
@@ -324,292 +345,224 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto grid min-h-screen w-full max-w-7xl gap-6 p-6 lg:grid-cols-3">
-      <section className="panel lg:col-span-2">
-        <h1 className="text-2xl font-bold">AI Doc Orchestrator - Reactif et moderne</h1>
-        <p className="text-sm text-slate-300">
-          Agent principal + sous-agents, delegation automatique et execution parallele des taches.
-        </p>
-        <form className="mt-6 grid gap-3" onSubmit={createTask}>
-          <input
-            className="input"
-            value={taskTitle}
-            onChange={(e) => setTaskTitle(e.target.value)}
-            placeholder="Titre de la tache"
-            required
-          />
-          <textarea
-            className="input min-h-28"
-            value={taskPrompt}
-            onChange={(e) => setTaskPrompt(e.target.value)}
-            placeholder="Explique la tache a traiter..."
-            required
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <select
-              className="input"
-              value={provider}
-              onChange={(e) => {
-                setProvider(e.target.value);
-                setModelName(PROVIDER_MODELS[e.target.value]?.[0] || "");
-              }}
-            >
-              <option value="ollama">ollama (local)</option>
-              <option value="openai">openai</option>
-              <option value="gemini">gemini</option>
-              <option value="grok">grok / xAI</option>
-              <option value="anthropic">anthropic</option>
-            </select>
-            {provider !== "ollama" ? (
-              <input
-                className="input"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Clé API requis"
-                required
-              />
-            ) : (
-              <div className="input opacity-50 bg-slate-800 flex items-center text-xs">
-                Local Ollama - Pas de clé nécessaire
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <div className="flex gap-2">
-              <select className="input flex-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
-                <option value="">-- Sélect. Modèle --</option>
-                {(PROVIDER_MODELS[provider] || []).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-                <option value="custom">Autre (saisie manuelle)</option>
-              </select>
-              {(!PROVIDER_MODELS[provider]?.includes(modelName) || modelName === "custom") && (
-                <input
-                  className="input flex-1"
-                  value={modelName === "custom" ? "" : modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder="Nom du modèle"
-                />
+    <div className="flex h-screen w-full overflow-hidden" style={{ backgroundColor: "var(--bg-primary)" }}>
+      {/* Sidebar */}
+      <aside className="w-64 border-r flex flex-col shrink-0 overflow-y-auto" style={{ backgroundColor: "var(--bg-secondary)", borderColor: "var(--border-color)" }}>
+        <div className="p-4 border-b flex items-center gap-2 shrink-0" style={{ borderColor: "var(--border-color)" }}>
+          <div className="w-6 h-6 rounded bg-[#ff5c00] flex items-center justify-center text-black font-bold text-xs">AI</div>
+          <h1 className="font-serif text-lg leading-none">AI DOC<br/><span className="text-xs font-sans text-[#888]">ORCHESTRATOR</span></h1>
+        </div>
+
+        <div className="p-4 flex-1">
+          <div className="mb-6">
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Activité en direct</h2>
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {activity.active_agents.length ? (
+                activity.active_agents.map((a) => <span key={a} className="chip">{a}</span>)
+              ) : (
+                <span className="text-xs text-[#555]">Aucun agent en cours</span>
               )}
             </div>
-          </div>
-          <select className="input" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
-            <option value="">Agent principal (delegation auto)</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name} ({agent.kind})
-              </option>
-            ))}
-          </select>
-          <button className="btn" disabled={busy}>
-            Lancer la tache
-          </button>
-        </form>
-
-        <div className="mt-6 grid gap-3">
-          <h2 className="text-lg font-semibold">Taches</h2>
-          {tasks.map((task) => (
-            <article className="task-card" key={task.id}>
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">{task.title}</h3>
-                <span className={`status ${task.status}`}>{task.status}</span>
-              </div>
-              <p className="text-xs text-slate-300">
-                Demande: {task.requested_agent_name || "auto"} - Execution: {task.assigned_agent_name || "routing"}
-              </p>
-              <div className="mt-2 flex gap-2">
-                {(task.status === "queued" || task.status === "running") && (
-                  <button className="btn" onClick={() => cancelTask(task.id)}>
-                    Cancel
-                  </button>
-                )}
-                {(task.status === "failed" || task.status === "cancelled") && (
-                  <button className="btn" onClick={() => retryTask(task.id)}>
-                    Retry
-                  </button>
-                )}
-                {task.status === "done" && (
-                  <>
-                    <button
-                      className="btn secondary"
-                      onClick={() => {
-                        setStudioTask(task);
-                        setStudioContent(task.result);
-                      }}
-                    >
-                      Studio / Éditer
-                    </button>
-                    {!task.is_approved && (
-                      <button className="btn" onClick={() => approveTask(task)}>
-                        Approuver
-                      </button>
-                    )}
-                    {task.is_approved && <span className="text-green-400 text-xs self-center">✓ Approuvé</span>}
-                  </>
-                )}
-              </div>
-              {task.result ? (
-                <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg text-sm text-slate-300 font-mono whitespace-pre-wrap overflow-x-auto min-h-[100px] mb-4 prose prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {task.result}
-                  </ReactMarkdown>
-                </div>
-              ) : null}
-              {task.error_message ? <p className="text-red-300">{task.error_message}</p> : null}
-            </article>
-          ))}
-        </div>
-
-        {/* Studio Modal */}
-        {studioTask && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="panel w-full max-w-4xl max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between border-b border-slate-700 pb-3">
-                <h2 className="text-xl font-bold">Studio: {studioTask.title}</h2>
-                <button className="text-slate-400 hover:text-white" onClick={() => setStudioTask(null)}>
-                  ✕
-                </button>
-              </div>
-              <div className="mt-4 flex-1 overflow-auto">
-                <div className="bg-slate-900 border border-slate-700 p-4 rounded-lg text-sm text-slate-300 min-h-[400px] prose prose-invert max-w-none mb-6">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {studioContent}
-                  </ReactMarkdown>
-                </div>
-
-                <div className="bg-slate-800 p-4 rounded-lg mb-6 border border-slate-700">
-                  <h4 className="text-sm font-semibold mb-3">Éditeur de texte brut</h4>
-                  <textarea
-                    className="w-full bg-slate-900 text-slate-100 p-3 rounded border border-slate-600 min-h-[200px] text-sm font-mono"
-                    value={studioContent}
-                    onChange={(e) => setStudioContent(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2 justify-between border-t border-slate-700 pt-4">
-                <div className="flex gap-2">
-                  <button className="btn tertiary" onClick={() => handleExport("docx")}>
-                    Export DOCX
-                  </button>
-                  <button className="btn tertiary" onClick={() => handleExport("pdf")}>
-                    Export PDF
-                  </button>
-                  <button className="btn tertiary" onClick={() => handleExport("xlsx")}>
-                    Export XLSX
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <button className="btn" onClick={() => setStudioTask(null)}>
-                    Fermer
-                  </button>
-                  <button className="btn primary" onClick={saveStudioResult} disabled={busy}>
-                    Sauvegarder
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <aside className="panel space-y-6">
-        <div>
-          <h2 className="text-lg font-semibold">Agents actifs</h2>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {activity.active_agents.length ? (
-              activity.active_agents.map((a) => (
-                <span key={a} className="chip">
-                  {a}
-                </span>
-              ))
-            ) : (
-              <span className="text-sm text-slate-400">Aucun agent en execution.</span>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h2 className="text-lg font-semibold">En cours</h2>
-          <ul className="mt-2 space-y-2">
-            {activity.running_tasks.length ? (
-              activity.running_tasks.map((row) => (
-                <li key={row.task_id} className="task-mini">
-                  <strong>{row.title}</strong>
-                  <span>{row.agent_name}</span>
+            <ul className="space-y-1.5">
+              {activity.running_tasks.map((row) => (
+                <li key={row.task_id} className="text-xs border p-1.5 rounded truncate flex flex-col" style={{ borderColor: "var(--border-color)" }}>
+                  <span className="text-white block truncate">{row.title}</span>
+                  <span className="text-[#888]">{row.agent_name}</span>
                 </li>
-              ))
-            ) : (
-              <li className="text-sm text-slate-400">Aucune tache active.</li>
-            )}
-          </ul>
-        </div>
+              ))}
+            </ul>
+          </div>
 
-        <form className="grid gap-3" onSubmit={createAgent}>
-          <h2 className="text-lg font-semibold">Creer un agent</h2>
-          <input
-            className="input"
-            value={agentName}
-            onChange={(e) => setAgentName(e.target.value)}
-            placeholder="Nom de l'agent"
-            required
-          />
-          <select className="input" value={agentKind} onChange={(e) => setAgentKind(e.target.value as "primary" | "sub")}>
-            <option value="sub">Sous-agent</option>
-            <option value="primary">Agent principal</option>
-          </select>
-          <input
-            className="input"
-            value={specialty}
-            onChange={(e) => setSpecialty(e.target.value)}
-            placeholder="Specialite (ex: juridique, finance...)"
-          />
-          <select
-            className="input"
-            value={parentId}
-            onChange={(e) => setParentId(e.target.value)}
-            disabled={agentKind !== "sub"}
-          >
-            <option value="">Parent principal (optionnel)</option>
-            {primaryAgents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-          <button className="btn" disabled={busy}>
-            Ajouter agent
-          </button>
-        </form>
-
-        <div className="grid gap-2">
-          <h2 className="text-lg font-semibold">Admin - Roles</h2>
-          {adminUsers.map((u) => (
-            <div key={u.id} className="task-mini">
-              <span>
-                {u.username} ({u.roles.join(",") || "none"})
-              </span>
-              <select className="input" defaultValue={u.roles[0] || "viewer"} onChange={(e) => updateRole(u.id, e.target.value)}>
-                <option value="viewer">viewer</option>
-                <option value="operator">operator</option>
-                <option value="manager">manager</option>
+          <div className="mb-6">
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Liste des agents</h2>
+            <form className="grid gap-2" onSubmit={createAgent}>
+              <input className="input !py-1.5 !px-2 text-xs" value={agentName} onChange={(e) => setAgentName(e.target.value)} placeholder="Nom de l'agent" required />
+              <select className="input !py-1.5 !px-2 text-xs" value={agentKind} onChange={(e) => setAgentKind(e.target.value as "primary" | "sub")}>
+                <option value="sub">Sous-agent</option>
+                <option value="primary">Agent principal</option>
               </select>
-            </div>
-          ))}
-        </div>
+              <input className="input !py-1.5 !px-2 text-xs" value={specialty} onChange={(e) => setSpecialty(e.target.value)} placeholder="Spécialité" />
+              <button className="btn w-full !py-1.5 text-xs" disabled={busy}>Recruter un agent</button>
+            </form>
+          </div>
 
-        <div className="grid gap-2">
-          <h2 className="text-lg font-semibold">Admin - Audit</h2>
-          {auditLogs.slice(0, 12).map((log) => (
-            <div key={log.id} className="task-mini">
-              <span>{log.action}</span>
-              <span>{log.actor || "-"}</span>
+          <div className="mb-6">
+            <h2 className="text-xs font-mono uppercase tracking-wider text-[#888] mb-3">Administration & Audit</h2>
+            <div className="space-y-1">
+              {auditLogs.slice(0, 5).map((log) => (
+                <div key={log.id} className="flex flex-col text-xs text-[#666] border-b pb-1 mb-1" style={{ borderColor: "var(--border-color)" }}>
+                  <span className="truncate">{log.action}</span>
+                  <span>par : {log.actor || "-"}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </aside>
-    </main>
+
+      {/* Main Workspace */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <header className="h-14 border-b flex items-center justify-between px-6 shrink-0" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-primary)" }}>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-sm px-2 py-0.5 rounded bg-[#111] border text-[#fff]" style={{ borderColor: "var(--border-color)" }}># Espace de travail</span>
+          </div>
+          <button className="btn text-xs text-[#888]" onClick={() => { window.localStorage.clear(); window.location.reload(); }}>Déconnexion</button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-6 lg:p-8 flex flex-col items-center" style={{ backgroundColor: "var(--bg-primary)" }}>
+          <div className="w-full max-w-4xl flex flex-col gap-6">
+            
+            {/* New Task Area */}
+            <section className="panel !pb-4">
+              <h2 className="text-lg font-serif mb-4 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#ff5c00]"></span>
+                Assigner une nouvelle tâche
+              </h2>
+              <form className="flex flex-col gap-4" onSubmit={createTask}>
+                <input className="input text-lg font-serif bg-transparent border-0 border-b rounded-none px-0 focus:border-[#ff5c00] pb-2 text-white" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} placeholder="Titre de la tâche..." required />
+                <textarea className="input min-h-[100px] resize-y text-sm text-white focus:border-[#555]" value={taskPrompt} onChange={(e) => setTaskPrompt(e.target.value)} placeholder="Décrivez le travail à effectuer..." required />
+                
+                <div className="flex flex-wrap gap-2 p-3 rounded bg-black border" style={{ borderColor: "var(--border-color)" }}>
+                  <select className="input !w-auto text-xs py-1" value={provider} onChange={(e) => { setProvider(e.target.value); setModelName(PROVIDER_MODELS[e.target.value]?.[0] || ""); }}>
+                    <option value="ollama">Ollama (Local)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Gemini</option>
+                    <option value="grok">xAI Grok</option>
+                    <option value="anthropic">Anthropic</option>
+                  </select>
+                  
+                  <select className="input !w-auto text-xs py-1" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                    {(!PROVIDER_MODELS[provider]?.includes(modelName) && modelName !== "") && <option value={modelName}>{modelName}</option>}
+                    {(PROVIDER_MODELS[provider] || []).map((m) => (<option key={m} value={m}>{m}</option>))}
+                    <option value="custom">Custom...</option>
+                  </select>
+
+                  <select className="input !w-auto text-xs py-1" value={targetAgentId} onChange={(e) => setTargetAgentId(e.target.value)}>
+                    <option value="">Délégation auto</option>
+                    {agents.map((agent) => (<option key={agent.id} value={agent.id}>{agent.name} ({agent.kind})</option>))}
+                  </select>
+
+                  {provider !== "ollama" ? (
+                    <input className="input !w-auto text-xs py-1 flex-1 min-w-[200px]" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="Clé API" required />
+                  ) : (
+                    <div className="text-xs flex items-center text-[#ff5c00] opacity-80 px-2 font-mono border-l border-[#333] pl-3">Aucune clé API requise</div>
+                  )}
+                </div>
+                
+                <div className="flex justify-end mt-1">
+                  <button className="btn primary px-6" disabled={busy}>Assigner</button>
+                </div>
+              </form>
+            </section>
+
+            {/* Tasks List */}
+            <section>
+              <h2 className="text-lg font-serif mb-4 pb-2 border-b" style={{ borderColor: "var(--border-color)" }}>Journal des tâches</h2>
+              <div className="flex flex-col">
+                {tasks.map((task) => (
+                  <article className="task-card flex flex-col gap-2" key={task.id}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-mono text-xs text-[#666]">DOC-{task.id}</span>
+                          <h3 className="font-medium text-white truncate text-base font-serif">{task.title}</h3>
+                        </div>
+                        <p className="text-xs text-[#888] font-mono uppercase tracking-wider">
+                          Assigné à : {task.assigned_agent_name || "Routeur"}
+                        </p>
+                      </div>
+                      <span className={`status ${task.status}`}>{task.status === "queued" ? "en attente" : task.status === "running" ? "en cours" : task.status === "done" ? "terminé" : task.status === "failed" ? "échoué" : "annulé"}</span>
+                    </div>
+                    
+                    {task.result && (
+                      <div className="mt-2 p-4 rounded bg-black border text-sm text-[#ccc] max-h-[250px] overflow-y-auto" style={{ borderColor: "var(--border-color)" }}>
+                        <div className="prose prose-invert prose-sm max-w-none font-sans prose-p:my-1 prose-headings:mb-2 prose-headings:mt-4 first:prose-headings:mt-0">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )}
+
+                    {task.error_message && (
+                      <div className="mt-1 text-xs text-[#ef4444] font-mono whitespace-pre-wrap bg-[#ef4444]/10 p-2 rounded">
+                        {task.error_message}
+                      </div>
+                    )}
+
+                    <div className="flex justify-end gap-2 mt-2">
+                      {(task.status === "queued" || task.status === "running") && (
+                        <button className="btn !py-1 text-xs hover:text-[#ef4444] hover:border-[#ef4444] hover:bg-[#ef4444]/10" onClick={() => cancelTask(task.id)}>Annuler</button>
+                      )}
+                      {(task.status === "failed" || task.status === "cancelled") && (
+                        <button className="btn !py-1 text-xs" onClick={() => retryTask(task.id)}>Réessayer</button>
+                      )}
+                      {task.status === "done" && (
+                        <>
+                          <button className="btn !py-1 text-xs" onClick={() => { setStudioTask(task); setStudioContent(task.result); }}>
+                            Ouvrir dans le Studio
+                          </button>
+                          {!task.is_approved && (
+                            <button className="btn !py-1 text-xs border-[#10b981] text-[#10b981] hover:bg-[#10b981]/10" onClick={() => approveTask(task)}>
+                              Approuver
+                            </button>
+                          )}
+                          {task.is_approved && <span className="text-[#10b981] text-xs self-center font-mono uppercase tracking-widest bg-[#10b981]/10 px-2 py-0.5 rounded">Approuvé</span>}
+                        </>
+                      )}
+                    </div>
+                  </article>
+                ))}
+                {tasks.length === 0 && <p className="text-sm text-[#666] py-4 text-center">Aucune tâche trouvée. Créez-en une nouvelle.</p>}
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+
+      {/* Studio Modal */}
+      {studioTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-5xl max-h-[90vh] flex flex-col rounded-xl overflow-hidden border shadow-2xl" style={{ borderColor: "var(--border-color)", backgroundColor: "var(--bg-secondary)" }}>
+            <div className="flex items-center justify-between p-4 border-b bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xs text-[#ff5c00] px-2 py-1 rounded bg-[#ff5c00]/10 border border-[#ff5c00]/20">DOC-{studioTask.id}</span>
+                <h2 className="text-lg font-serif">Studio : {studioTask.title}</h2>
+              </div>
+              <button className="text-[#888] hover:text-white transition-colors text-xl leading-none" onClick={() => setStudioTask(null)}>✕</button>
+            </div>
+            
+            <div className="flex-1 flex overflow-hidden">
+              {/* Preview side */}
+              <div className="flex-1 p-6 overflow-y-auto border-r bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+                <div className="prose prose-invert prose-sm max-w-none font-sans prose-p:text-[#ccc] prose-headings:text-white">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{studioContent}</ReactMarkdown>
+                </div>
+              </div>
+              {/* Editor side */}
+              <div className="w-[450px] flex flex-col bg-[#050505]">
+                <div className="p-3 border-b text-[10px] font-mono uppercase tracking-widest text-[#666] bg-[#0a0a0a]" style={{ borderColor: "var(--border-color)" }}>Markdown brut</div>
+                <textarea
+                  className="flex-1 w-full bg-transparent text-[#ddd] p-4 font-mono text-sm leading-relaxed focus:outline-none resize-none"
+                  value={studioContent}
+                  onChange={(e) => setStudioContent(e.target.value)}
+                  placeholder="Édition du contenu brut..."
+                />
+              </div>
+            </div>
+
+            <div className="p-4 border-t flex justify-between items-center bg-[#000]" style={{ borderColor: "var(--border-color)" }}>
+              <div className="flex gap-2">
+                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("docx")}>⭳ DOCX</button>
+                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("pdf")}>⭳ PDF</button>
+                <button className="btn !py-1 text-xs text-[#888] hover:text-white" onClick={() => handleExport("xlsx")}>⭳ XLSX</button>
+              </div>
+              <div className="flex gap-3">
+                <button className="btn" onClick={() => setStudioTask(null)}>Fermer</button>
+                <button className="btn primary" onClick={saveStudioResult} disabled={busy}>Enregistrer les modifications</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

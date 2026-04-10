@@ -120,28 +120,28 @@ class AgentTaskViewSet(
             return Response({"models": [], "error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response({"models": []})
 
-    @action(detail=True, methods=["get"], url_path="export/(?P<format>docx|pdf|xlsx)")
-    def export_document(self, request, pk=None, format=None):
+    @action(detail=True, methods=["get"], url_path="export")
+    def export_document(self, request, pk=None):
         task = self.get_object()
+        fmt = request.query_params.get("fmt", "docx")
         content = task.result or "Aucun contenu généré."
         buffer = io.BytesIO()
         
-        if format == "docx":
+        if fmt == "docx":
             doc = Document()
             doc.add_heading(task.title, 0)
             doc.add_paragraph(content)
             doc.save(buffer)
             filename = f"export_{pk}.docx"
             content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        elif format == "pdf":
+        elif fmt == "pdf":
             p = canvas.Canvas(buffer, pagesize=A4)
             width, height = A4
             p.setFont("Helvetica", 12)
             p.drawString(50, height - 50, task.title)
             textobject = p.beginText(50, height - 70)
-            # Basic line splitting for simplicity
             for line in content.split("\n"):
-                if len(line) > 90: # Very basic wrap
+                if len(line) > 90:
                     for i in range(0, len(line), 90):
                         textobject.textLine(line[i:i+90])
                 else:
@@ -151,7 +151,7 @@ class AgentTaskViewSet(
             p.save()
             filename = f"export_{pk}.pdf"
             content_type = "application/pdf"
-        elif format == "xlsx":
+        elif fmt == "xlsx":
             wb = Workbook()
             ws = wb.active
             ws.title = "Resultat"
@@ -164,6 +164,8 @@ class AgentTaskViewSet(
             wb.save(buffer)
             filename = f"export_{pk}.xlsx"
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else:
+            return Response({"detail": "Format non supporté."}, status=status.HTTP_400_BAD_REQUEST)
         
         buffer.seek(0)
         return FileResponse(buffer, as_attachment=True, filename=filename, content_type=content_type)
