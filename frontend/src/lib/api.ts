@@ -41,9 +41,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
       headers: { ...authHeaders(), ...(init?.headers || {}) },
     });
     if (!retryRes.ok) throw new Error(`${init?.method || "GET"} ${path} failed`);
+    if (retryRes.status === 204) return {} as T;
     return retryRes.json();
   }
   if (!res.ok) throw new Error(`${init?.method || "GET"} ${path} failed: ${res.status}`);
+  if (res.status === 204) return {} as T;
   return res.json();
 }
 

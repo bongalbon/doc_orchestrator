@@ -13,6 +13,7 @@ class AgentSerializer(serializers.ModelSerializer):
             "specialty",
             "system_prompt",
             "parent",
+            "is_recruited",
             "is_active",
             "created_at",
             "updated_at",

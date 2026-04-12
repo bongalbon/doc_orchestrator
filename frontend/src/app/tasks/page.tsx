@@ -106,6 +106,9 @@ export default function TasksPage() {
       setTaskPrompt("");
       setShowCreateForm(false);
       await loadAll();
+    } catch (err: any) {
+      console.error("Task creation failed", err);
+      alert("Erreur lors du lancement : " + (err.message || "Vérifiez vos paramètres API ou votre connexion."));
     } finally {
       setBusy(false);
     }
@@ -128,6 +131,9 @@ export default function TasksPage() {
       await apiPost<{ ok: boolean }>(`/tasks/${retryTaskModal.id}/retry/`, {});
       setRetryTaskModal(null);
       await loadAll();
+    } catch (err: any) {
+      console.error("Retry failed", err);
+      alert("Échec de la relance : " + err.message);
     } finally {
       setBusy(false);
     }

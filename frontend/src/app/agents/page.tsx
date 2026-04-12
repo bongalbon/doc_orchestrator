@@ -59,6 +59,9 @@ export default function AgentsPage() {
       setParentId("");
       setSystemPrompt("");
       await loadAgents();
+    } catch (err: any) {
+      console.error("Agent creation failed", err);
+      alert("Échec du recrutement : " + (err.message || "Erreur inconnue. Vérifiez si ce nom d'agent existe déjà."));
     } finally {
       setBusy(false);
     }
@@ -86,8 +89,9 @@ export default function AgentsPage() {
     try {
       await apiFetch(`/agents/${id}/`, { method: "DELETE" });
       await loadAgents();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Delete failed", err);
+      alert("Échec de la suppression : " + (err.message || "Vérifiez vos permissions."));
     }
   }
 
@@ -138,7 +142,7 @@ export default function AgentsPage() {
                 <label className="text-[10px] text-[#888] mb-1 block uppercase tracking-widest font-mono">Prompt Système (Optionnel)</label>
                 <textarea className="input w-full h-24 resize-none" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} placeholder="Instructions spécifiques de comportement..." />
               </div>
-              <button className="btn primary w-full py-3 mt-4" disabled={busy}>ENRÔLER L'AGENT</button>
+              <button type="submit" className="btn primary w-full py-3 mt-4" disabled={busy}>ENRÔLER L'AGENT</button>
             </form>
           </div>
         </section>
