@@ -18,6 +18,7 @@ type AgentTask = {
   created_at?: string;
   provider?: string;
   model?: string;
+  ollama_url?: string;
 };
 
 type Agent = {
@@ -94,16 +95,25 @@ export default function TasksPage() {
     }
   }, [provider, isOllamaCloud, showCreateForm]);
 
+  const [error, setError] = useState<string | null>(null);
+
   async function loadAll() {
     try {
+      setError(null);
       const [taskData, agentsData] = await Promise.all([
         apiGet<AgentTask[]>("/tasks/"),
         apiGet<Agent[]>("/agents/"),
       ]);
       setTasks(taskData);
       setAgents(agentsData);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load tasks data", err);
+      const msg = err?.message || "";
+      if (msg.includes("Network error") || msg.includes("Unable to connect")) {
+        setError(msg);
+      } else {
+        setError("Impossible de charger les données. Vérifiez que le backend est démarré.");
+      }
     } finally {
       setLoading(false);
     }
@@ -223,6 +233,21 @@ export default function TasksPage() {
   }, [tasks, searchQuery, statusFilter, approvalFilter]);
 
   if (loading) return <div className="p-8 font-mono text-[#ff5c00] animate-pulse">Synchronisation des orchestrations...</div>;
+
+  if (error) return (
+    <div className="p-8">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-2xl">
+        <h2 className="text-red-500 font-mono text-sm uppercase tracking-widest mb-4">Erreur de connexion</h2>
+        <pre className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed">{error}</pre>
+        <button
+          onClick={() => { setLoading(true); loadAll(); }}
+          className="mt-4 btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+        >
+          Réessayer
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full bg-[var(--bg-primary)]">

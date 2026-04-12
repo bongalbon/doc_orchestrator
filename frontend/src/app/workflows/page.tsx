@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { apiGet, apiPost } from "../../lib/api";
+import React, { useEffect, useState, FormEvent } from "react";
+import { apiGet, apiPost, apiFetch } from "../../lib/api";
 import WorkflowTimeline from "../../components/workflow/WorkflowTimeline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,7 +28,42 @@ type Workflow = {
 export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+
+  // Relaunch modal state - all workflow creation fields
+  const [showRelaunchModal, setShowRelaunchModal] = useState(false);
+  const [relaunchTitle, setRelaunchTitle] = useState("");
+  const [relaunchPrompt, setRelaunchPrompt] = useState("");
+  const [relaunchManagerId, setRelaunchManagerId] = useState<string>("");
+  const [relaunchProvider, setRelaunchProvider] = useState("gemini");
+  const [relaunchModel, setRelaunchModel] = useState("gemini-2.0-flash");
+  const [relaunchApiKey, setRelaunchApiKey] = useState("");
+  const [relaunchIsOllamaCloud, setRelaunchIsOllamaCloud] = useState(false);
+  const [relaunchOllamaUrl, setRelaunchOllamaUrl] = useState("http://localhost:11434");
+  const [relaunchDynamicModels, setRelaunchDynamicModels] = useState<string[]>([]);
+  const [relaunchIsLoadingModels, setRelaunchIsLoadingModels] = useState(false);
+  const [isRelaunching, setIsRelaunching] = useState(false);
+
+  const PROVIDER_MODELS_FALLBACK: Record<string, string[]> = {
+    ollama: ["llama3.3:latest", "llama3.2:latest", "llama3.1:8b"],
+    openai: ["gpt-4o", "gpt-4o-mini", "o1-mini"],
+    gemini: ["gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    anthropic: ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022"],
+    grok: ["grok-2-1212", "grok-beta"],
+  };
+
+  // Agents for manager selection
+  const [agents, setAgents] = useState<{id: number; name: string; kind: string}[]>([]);
+
+  async function loadAgents() {
+    try {
+      const data = await apiGet<{id: number; name: string; kind: string}[]>("/agents/");
+      setAgents(data.filter(a => a.kind === "primary"));
+    } catch (err) {
+      console.error("Failed to load agents", err);
+    }
+  }
 
   async function handleCancel(id: number) {
     if (!confirm("Êtes-vous sûr de vouloir avorter cette orchestration ?")) return;
@@ -40,12 +75,99 @@ export default function WorkflowsPage() {
     }
   }
 
+  async function handleDelete(id: number) {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer définitivement ce workflow ?\n\nCette action est irréversible.")) return;
+    try {
+      await apiFetch(`/workflows/${id}/`, { method: "DELETE" });
+      await loadWorkflows();
+      if (selectedWorkflow?.id === id) {
+        setSelectedWorkflow(null);
+      }
+    } catch (err) {
+      console.error("Delete failed", err);
+      alert("Erreur lors de la suppression du workflow");
+    }
+  }
+
+  async function loadRelaunchModelsForProvider(p: string, isCloud: boolean, cloudUrl?: string) {
+    setRelaunchIsLoadingModels(true);
+    try {
+      let endpoint = `/tasks/provider-models/?provider=${p}`;
+      if (p === "ollama") {
+        endpoint = isCloud && cloudUrl ? `/tasks/ollama-models/?url=${encodeURIComponent(cloudUrl)}` : `/tasks/ollama-models/`;
+      }
+      const data = await apiGet<{ models: string[]; error?: string }>(endpoint);
+      if (data.models && data.models.length > 0) {
+        setRelaunchDynamicModels(data.models);
+        if (!data.models.includes(relaunchModel)) setRelaunchModel(data.models[0]);
+      } else {
+        setRelaunchDynamicModels(PROVIDER_MODELS_FALLBACK[p] || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch models", err);
+      setRelaunchDynamicModels(PROVIDER_MODELS_FALLBACK[p] || []);
+    } finally {
+      setRelaunchIsLoadingModels(false);
+    }
+  }
+
+  function openRelaunchModal(workflow: Workflow) {
+    setRelaunchTitle(workflow.title);
+    setRelaunchPrompt(workflow.initial_prompt);
+    setRelaunchManagerId("");
+    setRelaunchProvider("gemini");
+    setRelaunchModel("gemini-2.0-flash");
+    setRelaunchApiKey("");
+    setRelaunchIsOllamaCloud(false);
+    setRelaunchOllamaUrl("http://localhost:11434");
+    setRelaunchDynamicModels(PROVIDER_MODELS_FALLBACK["gemini"]);
+    setShowRelaunchModal(true);
+    loadRelaunchModelsForProvider("gemini", false);
+  }
+
+  async function handleRelaunch(e: FormEvent) {
+    e.preventDefault();
+    if (!selectedWorkflow) return;
+
+    setIsRelaunching(true);
+    try {
+      const payload: Record<string, unknown> = {
+        title: relaunchTitle,
+        prompt: relaunchPrompt,
+        manager_agent_id: relaunchManagerId ? Number(relaunchManagerId) : null,
+        provider: relaunchProvider,
+        model_name: relaunchModel,
+        api_key: relaunchApiKey || "",
+      };
+
+      if (relaunchProvider === "ollama" && relaunchIsOllamaCloud) {
+        payload.ollama_url = relaunchOllamaUrl;
+      }
+
+      await apiPost("/workflows/", payload);
+      setShowRelaunchModal(false);
+      await loadWorkflows();
+    } catch (err) {
+      console.error("Relaunch failed", err);
+      alert("Erreur lors du relancement du workflow");
+    } finally {
+      setIsRelaunching(false);
+    }
+  }
+
   async function loadWorkflows() {
     try {
+      setError(null);
       const data = await apiGet<Workflow[]>("/workflows/");
       setWorkflows(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load workflows", err);
+      const msg = err?.message || "";
+      if (msg.includes("Network error") || msg.includes("Unable to connect")) {
+        setError(msg);
+      } else {
+        setError("Impossible de charger les workflows. Vérifiez que le backend est démarré.");
+      }
     } finally {
       setLoading(false);
     }
@@ -53,6 +175,7 @@ export default function WorkflowsPage() {
 
   useEffect(() => {
     loadWorkflows();
+    loadAgents();
     const interval = setInterval(loadWorkflows, 10000);
     return () => clearInterval(interval);
   }, []);
@@ -60,6 +183,21 @@ export default function WorkflowsPage() {
   if (loading && workflows.length === 0) {
     return <div className="p-8 font-mono text-[#ff5c00] animate-pulse">Chargement de l'intelligence collective...</div>;
   }
+
+  if (error) return (
+    <div className="p-8">
+      <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-2xl">
+        <h2 className="text-red-500 font-mono text-sm uppercase tracking-widest mb-4">Erreur de connexion</h2>
+        <pre className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed">{error}</pre>
+        <button
+          onClick={() => { setLoading(true); loadWorkflows(); }}
+          className="mt-4 btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+        >
+          Réessayer
+        </button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[var(--bg-primary)] h-full">
@@ -106,14 +244,30 @@ export default function WorkflowsPage() {
                   <span className="block text-[10px] text-[#555] uppercase font-mono tracking-widest mb-1">Status Actuel</span>
                   <span className="text-lg font-serif text-[#ff5c00]">{selectedWorkflow.status}</span>
                 </div>
-                {['thinking', 'delegating', 'reviewing', 'awaiting_approval'].includes(selectedWorkflow.status) && (
-                  <button 
-                    onClick={() => handleCancel(selectedWorkflow.id)}
-                    className="text-[10px] font-mono text-red-500 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
+                <div className="flex flex-col gap-2">
+                  {['thinking', 'delegating', 'reviewing', 'awaiting_approval'].includes(selectedWorkflow.status) && (
+                    <button 
+                      onClick={() => handleCancel(selectedWorkflow.id)}
+                      className="text-[10px] font-mono text-red-500 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
+                    >
+                      ⏹ Avorter l'orchestration
+                    </button>
+                  )}
+                  {['completed', 'failed', 'cancelled'].includes(selectedWorkflow.status) && (
+                    <button
+                      onClick={() => openRelaunchModal(selectedWorkflow)}
+                      className="text-[10px] font-mono text-[#ff5c00] border border-[#ff5c00]/30 px-3 py-1 rounded hover:bg-[#ff5c00] hover:text-white transition-all uppercase tracking-widest"
+                    >
+                      🔄 Relancer
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(selectedWorkflow.id)}
+                    className="text-[10px] font-mono text-red-400 border border-red-400/30 px-3 py-1 rounded hover:bg-red-400 hover:text-white transition-all uppercase tracking-widest"
                   >
-                    ⏹ Avorter l'orchestration
+                    🗑 Supprimer
                   </button>
-                )}
+                </div>
               </div>
             </div>
 
@@ -144,6 +298,172 @@ export default function WorkflowsPage() {
           </div>
         )}
       </div>
+
+      {/* Relaunch Modal */}
+      {showRelaunchModal && selectedWorkflow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-[var(--border-color)] bg-black/20 flex justify-between items-center">
+              <h2 className="font-serif text-xl">🔄 Relancer l'orchestration</h2>
+              <button onClick={() => setShowRelaunchModal(false)} className="text-[#888] hover:text-white">✕</button>
+            </div>
+            <form onSubmit={handleRelaunch} className="p-6 space-y-6">
+              <div>
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Titre</label>
+                <input
+                  className="input w-full"
+                  value={relaunchTitle}
+                  onChange={(e) => setRelaunchTitle(e.target.value)}
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Prompt initial</label>
+                <textarea
+                  className="input w-full h-32 resize-none text-sm"
+                  value={relaunchPrompt}
+                  onChange={(e) => setRelaunchPrompt(e.target.value)}
+                  placeholder="Décrivez votre besoin..."
+                  required
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Manager Agent (Optionnel)</label>
+                  <select
+                    className="input w-full text-xs"
+                    value={relaunchManagerId}
+                    onChange={(e) => setRelaunchManagerId(e.target.value)}
+                  >
+                    <option value="">Auto-sélection</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Fournisseur IA</label>
+                  <select
+                    className="input w-full text-xs"
+                    value={relaunchProvider}
+                    onChange={(e) => {
+                      setRelaunchProvider(e.target.value);
+                      setRelaunchIsOllamaCloud(false);
+                      loadRelaunchModelsForProvider(e.target.value, false);
+                    }}
+                  >
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI ChatGPT</option>
+                    <option value="anthropic">Anthropic Claude</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="grok">xAI Grok</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block flex justify-between">
+                    <span>Modèle IA</span>
+                    {relaunchIsLoadingModels && <span className="animate-spin">⌛</span>}
+                  </label>
+                  <div className="flex gap-1">
+                    <select
+                      className="input w-full text-xs"
+                      value={relaunchModel}
+                      onChange={(e) => setRelaunchModel(e.target.value)}
+                    >
+                      {relaunchDynamicModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                      <option value="custom">-- Personnalisé --</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="btn !p-1 text-[10px]"
+                      title="Rafraîchir"
+                      onClick={() => loadRelaunchModelsForProvider(relaunchProvider, relaunchIsOllamaCloud, relaunchOllamaUrl)}
+                    >
+                      🔄
+                    </button>
+                  </div>
+                  {relaunchModel === "custom" && (
+                    <input
+                      className="input w-full mt-2 text-xs"
+                      placeholder="ID du modèle (ex: llama3.1:70b)"
+                      onChange={(e) => setRelaunchModel(e.target.value)}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">
+                    Clé API (Optionnel)
+                  </label>
+                  <input
+                    type="password"
+                    className="input w-full text-xs"
+                    placeholder="Laisser vide pour utiliser la clé enregistrée"
+                    value={relaunchApiKey}
+                    onChange={(e) => setRelaunchApiKey(e.target.value)}
+                  />
+                </div>
+              </div>
+              {relaunchProvider === "ollama" && (
+                <div className="p-3 bg-[#ff5c00]/5 border border-[#ff5c00]/20 rounded-lg space-y-3">
+                  <div className="flex items-center gap-3">
+                    <label className="text-[9px] uppercase font-mono flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="relaunchOllamaMode"
+                        checked={!relaunchIsOllamaCloud}
+                        onChange={() => {
+                          setRelaunchIsOllamaCloud(false);
+                          loadRelaunchModelsForProvider("ollama", false);
+                        }}
+                      /> Local
+                    </label>
+                    <label className="text-[9px] uppercase font-mono flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="relaunchOllamaMode"
+                        checked={relaunchIsOllamaCloud}
+                        onChange={() => {
+                          setRelaunchIsOllamaCloud(true);
+                          loadRelaunchModelsForProvider("ollama", true, relaunchOllamaUrl);
+                        }}
+                      /> Cloud/Remote
+                    </label>
+                  </div>
+                  {relaunchIsOllamaCloud && (
+                    <input
+                      className="input w-full text-[10px]"
+                      placeholder="http://votre-ollama:11434"
+                      value={relaunchOllamaUrl}
+                      onChange={(e) => setRelaunchOllamaUrl(e.target.value)}
+                      onBlur={() => loadRelaunchModelsForProvider("ollama", true, relaunchOllamaUrl)}
+                    />
+                  )}
+                </div>
+              )}
+              <div className="pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRelaunchModal(false)}
+                  className="btn flex-1"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="btn primary flex-1"
+                  disabled={isRelaunching}
+                >
+                  {isRelaunching ? "Lancement..." : "Lancer l'Orchestration ⚡"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

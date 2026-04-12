@@ -25,7 +25,12 @@ export default function Sidebar() {
     try {
       const data = await apiGet<ActivityResponse>("/tasks/activity/");
       setActivity(data);
-    } catch (err) {
+    } catch (err: any) {
+      // Silently fail for network errors - don't spam console
+      if (err?.message?.includes("Network error")) {
+        // Backend not available - this is expected during startup
+        return;
+      }
       console.error("Activity load failed", err);
     }
   };
@@ -36,7 +41,17 @@ export default function Sidebar() {
     ws.onmessage = () => {
       loadActivity();
     };
-    return () => ws.close();
+    ws.onerror = () => {
+      // Silently handle WebSocket errors - backend might not be ready
+    };
+    ws.onclose = () => {
+      // Connection closed - will reconnect on next mount or user can refresh
+    };
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
   }, []);
 
   const handleLogout = () => {
