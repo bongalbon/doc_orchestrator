@@ -139,6 +139,7 @@ def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
 
     workflow = Workflow.objects.create(
         title=title,
+        user=user,
         initial_prompt=prompt,
         manager_agent=manager_agent,
         status="thinking",

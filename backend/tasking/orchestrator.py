@@ -23,6 +23,13 @@ class OrchestrationManager:
             agent=agent
         )
 
+    def _get_api_key(self, provider: str) -> Optional[str]:
+        from tasking.models import ProviderCredential
+        if not self.workflow.user:
+            return None
+        cred = ProviderCredential.objects.filter(user=self.workflow.user, provider=provider, is_active=True).first()
+        return cred.get_key() if cred else None
+
     def run_iteration(self):
         """
         Exécute une itération de la boucle de réflexion du Manager.
@@ -49,11 +56,13 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
 
         prompt = f"Mission initiale : {self.workflow.initial_prompt}\n\nHistorique :\n{history_text if history_text else 'Aucune étape réalisée.'}\n\nQuelle est votre prochaine action ?"
 
+        provider = "openai"
         response = run_llm_task(
             prompt=prompt,
             system_prompt=system_prompt,
-            provider="openai", # On privilégie un modèle puissant pour le manager
-            model="gpt-4o-mini"
+            provider=provider,
+            model="gpt-4o-mini",
+            api_key=self._get_api_key(provider)
         )
 
         # 2. Parser la réponse
@@ -104,11 +113,13 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
             # Ici on appelle directement le LLM pour le sous-agent (ou on crée un AgentTask synchrone)
             self.log_step("delegation", f"Délégation à {agent_name} : {task_prompt}", agent=agent)
             
+            provider = "ollama"
             result = run_llm_task(
                 prompt=task_prompt,
                 system_prompt=agent.system_prompt,
-                provider="ollama", # Les sous-agents peuvent être plus légers
-                model="llama3.1:8b"
+                provider=provider,
+                model="llama3.1:8b",
+                api_key=self._get_api_key(provider)
             )
             
             self.log_step("execution", f"Résultat de {agent_name} : {result}", agent=agent)

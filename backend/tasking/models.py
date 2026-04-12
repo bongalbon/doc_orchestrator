@@ -88,10 +88,12 @@ class Workflow(models.Model):
     )
 
     title = models.CharField(max_length=180)
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="workflows", null=True, blank=True)
     initial_prompt = models.TextField()
     manager_agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="managed_workflows")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="thinking")
     final_result = models.TextField(blank=True)
+    error_message = models.TextField(blank=True)
     celery_task_id = models.CharField(max_length=120, blank=True)
     cancel_requested = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

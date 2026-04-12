@@ -64,29 +64,37 @@ def run_workflow_orchestration(self, workflow_id: int):
     max_iterations = 10
     iteration = 0
 
-    while workflow.status not in ["completed", "failed", "awaiting_approval"] and iteration < max_iterations:
-        # Check for cancellation at each step
-        workflow.refresh_from_db(fields=["cancel_requested", "status"])
-        if workflow.cancel_requested:
-            workflow.status = "failed"
-            workflow.final_result = "Orchestration annulée par l'utilisateur."
-            workflow.save(update_fields=["status", "final_result", "updated_at"])
-            broadcast_activity({"event": "workflow_cancelled", "workflow_id": workflow.id})
-            return "cancelled"
+    try:
+        while workflow.status not in ["completed", "failed", "awaiting_approval"] and iteration < max_iterations:
+            # Check for cancellation at each step
+            workflow.refresh_from_db(fields=["cancel_requested", "status"])
+            if workflow.cancel_requested:
+                workflow.status = "failed"
+                workflow.final_result = "Orchestration annulée par l'utilisateur."
+                workflow.save(update_fields=["status", "final_result", "updated_at"])
+                broadcast_activity({"event": "workflow_cancelled", "workflow_id": workflow.id})
+                return "cancelled"
 
-        manager.run_iteration()
-        workflow.refresh_from_db()
-        iteration += 1
+            manager.run_iteration()
+            workflow.refresh_from_db()
+            iteration += 1
 
-    if workflow.status == "awaiting_approval":
-        # Créer une notification pour l'utilisateur (on prend le premier superuser par défaut pour l'exemple)
-        user = User.objects.filter(is_superuser=True).first()
-        if user:
-            Notification.objects.create(
-                workflow=workflow,
-                user=user,
-                message=f"Le Manager a terminé le travail sur : {workflow.title}. En attente de votre validation."
-            )
-            broadcast_activity({"event": "notification_created", "workflow_id": workflow.id})
+        if workflow.status == "awaiting_approval":
+            # Créer une notification pour l'utilisateur
+            user = workflow.user or User.objects.filter(is_superuser=True).first()
+            if user:
+                Notification.objects.create(
+                    workflow=workflow,
+                    user=user,
+                    message=f"Le Manager a terminé le travail sur : {workflow.title}. En attente de votre validation."
+                )
+                broadcast_activity({"event": "notification_created", "workflow_id": workflow.id})
+
+    except Exception as e:
+        workflow.status = "failed"
+        workflow.error_message = str(e)
+        workflow.save(update_fields=["status", "error_message", "updated_at"])
+        broadcast_activity({"event": "workflow_failed", "workflow_id": workflow.id, "error": str(e)})
+        raise e
 
     return "workflow_step_completed"

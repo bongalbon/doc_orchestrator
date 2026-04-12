@@ -114,29 +114,14 @@ export default function TasksPage() {
     }
   }
 
-  async function retryWithNewParams(e: FormEvent) {
-    e.preventDefault();
-    if (!retryTaskModal) return;
-    setBusy(true);
-    try {
-      await apiFetch(`/tasks/${retryTaskModal.id}/`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          assigned_agent_id: retryAgentId ? Number(retryAgentId) : null,
-          provider: retryProvider,
-          model: retryModel,
-        }),
-      });
-      await apiPost<{ ok: boolean }>(`/tasks/${retryTaskModal.id}/retry/`, {});
-      setRetryTaskModal(null);
-      await loadAll();
-    } catch (err: any) {
-      console.error("Retry failed", err);
-      alert("Échec de la relance : " + err.message);
-    } finally {
-      setBusy(false);
-    }
+  function handleRelaunch(task: AgentTask) {
+    setTaskTitle(task.title);
+    setTaskPrompt(task.prompt);
+    setProvider(task.provider || "gemini");
+    setModelName(task.model || "");
+    setTargetAgentId(task.assigned_agent_id?.toString() || "");
+    setIsCEOMode(false);
+    setShowCreateForm(true);
   }
 
   async function approveTask(task: AgentTask) {
@@ -279,11 +264,9 @@ export default function TasksPage() {
                      </>
                    )}
                    {task.status === 'failed' && (
-                      <button className="btn !py-1 !px-3 text-[10px] border-[#ef4444] text-[#ef4444]" onClick={() => {
-                        setRetryTaskModal(task);
-                        setRetryAgentId(task.assigned_agent_id?.toString() || "");
-                        setRetryProvider(task.provider || "gemini");
-                      }}>Réparer ⚙️</button>
+                      <button className="btn !py-1 !px-3 text-[10px] border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444] hover:text-white transition-all" onClick={() => handleRelaunch(task)}>
+                        Relancer 🔄
+                      </button>
                    )}
                 </div>
               </div>
@@ -337,7 +320,7 @@ export default function TasksPage() {
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Modèle d'IA</label>
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Fournisseur</label>
                 <select className="input w-full text-xs" value={provider} onChange={(e) => {
                   setProvider(e.target.value);
                   setModelName(PROVIDER_MODELS[e.target.value][0]);
@@ -348,6 +331,22 @@ export default function TasksPage() {
                   <option value="ollama">Local Ollama</option>
                   <option value="grok">xAI Grok</option>
                 </select>
+              </div>
+              <div>
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Modèle d'IA</label>
+                <select className="input w-full text-xs" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                  {PROVIDER_MODELS[provider]?.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                  <option value="custom">-- Personnalisé --</option>
+                </select>
+                {modelName === "custom" && (
+                   <input 
+                     className="input w-full mt-2 text-xs" 
+                     placeholder="ID du modèle (ex: llama3.1:70b)" 
+                     onChange={(e) => setModelName(e.target.value)}
+                   />
+                )}
               </div>
               <div className="col-span-2">
                 <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">
@@ -412,38 +411,6 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Retry Modal */}
-      {retryTaskModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
-           <div className="w-full max-w-md bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden shadow-2xl">
-              <div className="p-4 border-b border-[var(--border-color)] bg-[#ef4444]/10">
-                <h2 className="text-[#ef4444] font-serif text-lg">Réparer l'Orchestration</h2>
-              </div>
-              <form onSubmit={retryWithNewParams} className="p-6 space-y-4">
-                <div>
-                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono">Changer l'Agent</label>
-                  <select className="input w-full text-sm" value={retryAgentId} onChange={(e) => setRetryAgentId(e.target.value)}>
-                    <option value="">Automatique</option>
-                    {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                   <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono">Changer de Provider</label>
-                    <select className="input w-full text-sm" value={retryProvider} onChange={(e) => {
-                      setRetryProvider(e.target.value);
-                      setRetryModel(PROVIDER_MODELS[e.target.value][0]);
-                    }}>
-                      {Object.keys(PROVIDER_MODELS).map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                </div>
-                <div className="pt-4 flex gap-3">
-                  <button type="button" onClick={() => setRetryTaskModal(null)} className="btn flex-1">Abandonner</button>
-                  <button type="submit" className="btn primary flex-1" disabled={busy}>Relancer ⚡</button>
-                </div>
-              </form>
-           </div>
-        </div>
-      )}
     </div>
   );
 }
