@@ -63,7 +63,7 @@ export default function SettingsPage() {
   if (loading) return <div className="p-8 font-mono text-[#ff5c00]">Chargement du centre de sécurité...</div>;
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
+    <div className="p-8 max-w-4xl mx-auto overflow-y-auto h-full">
       <header className="mb-12">
         <h1 className="text-4xl font-serif mb-4 flex items-center gap-3">
           <span className="text-[#ff5c00]">⚙️</span> Paramètres de Sécurité

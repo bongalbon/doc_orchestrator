@@ -31,6 +31,18 @@ export default function WorkflowsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
 
+  // Cancel confirmation modal state
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelTargetId, setCancelTargetId] = useState<number | null>(null);
+
+  // Delete confirmation modal state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+
   // Relaunch modal state - all workflow creation fields
   const [showRelaunchModal, setShowRelaunchModal] = useState(false);
   const [relaunchTitle, setRelaunchTitle] = useState("");
@@ -65,24 +77,38 @@ export default function WorkflowsPage() {
     }
   }
 
-  async function handleCancel(id: number) {
-    if (!confirm("Êtes-vous sûr de vouloir avorter cette orchestration ?")) return;
+  function openCancelConfirm(id: number) {
+    setCancelTargetId(id);
+    setShowCancelConfirm(true);
+  }
+
+  async function handleCancel() {
+    if (!cancelTargetId) return;
     try {
-      await apiPost(`/workflows/${id}/cancel/`, {});
+      await apiPost(`/workflows/${cancelTargetId}/cancel/`, {});
       await loadWorkflows();
+      setShowCancelConfirm(false);
+      setCancelTargetId(null);
     } catch (err) {
       console.error("Cancel failed", err);
     }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("Êtes-vous sûr de vouloir supprimer définitivement ce workflow ?\n\nCette action est irréversible.")) return;
+  function openDeleteConfirm(id: number) {
+    setDeleteTargetId(id);
+    setShowDeleteConfirm(true);
+  }
+
+  async function handleDelete() {
+    if (!deleteTargetId) return;
     try {
-      await apiFetch(`/workflows/${id}/`, { method: "DELETE" });
+      await apiFetch(`/workflows/${deleteTargetId}/`, { method: "DELETE" });
       await loadWorkflows();
-      if (selectedWorkflow?.id === id) {
+      if (selectedWorkflow?.id === deleteTargetId) {
         setSelectedWorkflow(null);
       }
+      setShowDeleteConfirm(false);
+      setDeleteTargetId(null);
     } catch (err) {
       console.error("Delete failed", err);
       alert("Erreur lors de la suppression du workflow");
@@ -199,16 +225,75 @@ export default function WorkflowsPage() {
     </div>
   );
 
+  // Filter workflows based on search and status
+  const filteredWorkflows = workflows.filter(w => {
+    const matchesSearch = searchQuery.trim() === "" ||
+      w.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      w.initial_prompt.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      w.manager_agent_name?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesStatus = statusFilter === "all" || w.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
   return (
     <div className="flex-1 flex overflow-hidden bg-[var(--bg-primary)] h-full">
       {/* List */}
       <div className="w-1/3 border-r border-[var(--border-color)] flex flex-col h-full bg-black/10">
         <header className="p-6 border-b border-[var(--border-color)]">
-          <h1 className="text-xl font-serif">Workflows CEO</h1>
-          <p className="text-[10px] text-[#888] font-mono uppercase tracking-widest mt-1">Orchestration & Délégation</p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-xl font-serif">Workflows CEO</h1>
+              <p className="text-[10px] text-[#888] font-mono uppercase tracking-widest mt-1">{filteredWorkflows.length} orchestration{filteredWorkflows.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          {/* Search Bar */}
+          <div className="relative mb-3">
+            <input
+              type="text"
+              placeholder="Rechercher..."
+              className="input w-full !py-2 !pl-9 text-sm"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]">🔍</span>
+          </div>
+          {/* Status Filter & Reset */}
+          <div className="flex gap-2">
+            <select
+              className="flex-1 bg-[#1a1a1a] border border-[var(--border-color)] text-[11px] uppercase font-mono tracking-widest px-3 py-2 rounded text-white"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all" className="bg-[#1a1a1a] text-white">📋 Tous les statuts</option>
+              <option value="thinking" className="bg-[#1a1a1a] text-white">🧠 En réflexion</option>
+              <option value="delegating" className="bg-[#1a1a1a] text-white">⚡ En délégation</option>
+              <option value="reviewing" className="bg-[#1a1a1a] text-white">👁 En révision</option>
+              <option value="awaiting_approval" className="bg-[#1a1a1a] text-white">⏳ En attente</option>
+              <option value="completed" className="bg-[#1a1a1a] text-[#10b981]">✅ Terminé</option>
+              <option value="failed" className="bg-[#1a1a1a] text-red-400">❌ Échoué</option>
+              <option value="cancelled" className="bg-[#1a1a1a] text-[#888]">🚫 Annulé</option>
+            </select>
+            {(searchQuery || statusFilter !== "all") && (
+              <button
+                onClick={() => { setSearchQuery(""); setStatusFilter("all"); }}
+                className="px-3 py-2 bg-[#ff5c00]/20 hover:bg-[#ff5c00]/30 border border-[#ff5c00]/50 rounded text-[#ff5c00] text-xs font-mono uppercase tracking-widest transition-colors"
+                title="Réinitialiser les filtres"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </header>
         <div className="flex-1 overflow-y-auto divide-y divide-[var(--border-color)]">
-          {workflows.map(w => (
+          {filteredWorkflows.length === 0 && (
+            <div className="p-8 text-center text-[#666]">
+              <div className="text-4xl mb-4">🔍</div>
+              <p className="text-xs font-mono uppercase tracking-widest">Aucun workflow ne correspond</p>
+            </div>
+          )}
+          {filteredWorkflows.map(w => (
             <button 
               key={w.id}
               onClick={() => setSelectedWorkflow(w)}
@@ -247,7 +332,7 @@ export default function WorkflowsPage() {
                 <div className="flex flex-col gap-2">
                   {['thinking', 'delegating', 'reviewing', 'awaiting_approval'].includes(selectedWorkflow.status) && (
                     <button 
-                      onClick={() => handleCancel(selectedWorkflow.id)}
+                      onClick={() => openCancelConfirm(selectedWorkflow.id)}
                       className="text-[10px] font-mono text-red-500 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
                     >
                       ⏹ Avorter l'orchestration
@@ -262,7 +347,7 @@ export default function WorkflowsPage() {
                     </button>
                   )}
                   <button
-                    onClick={() => handleDelete(selectedWorkflow.id)}
+                    onClick={() => openDeleteConfirm(selectedWorkflow.id)}
                     className="text-[10px] font-mono text-red-400 border border-red-400/30 px-3 py-1 rounded hover:bg-red-400 hover:text-white transition-all uppercase tracking-widest"
                   >
                     🗑 Supprimer
@@ -298,6 +383,90 @@ export default function WorkflowsPage() {
           </div>
         )}
       </div>
+
+      {/* Cancel Confirmation Modal - Warning Style */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-md bg-yellow-400 border-4 border-red-500 rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                {/* Warning Triangle Icon */}
+                <div className="shrink-0 w-16 h-16 bg-red-500 rounded-full flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="w-10 h-10 fill-current text-black" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5z"/>
+                    <text x="12" y="18" textAnchor="middle" className="text-[14px] font-black fill-black">!</text>
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-red-600 font-black text-lg uppercase tracking-wider mb-2">⚠️ Attention</h2>
+                  <p className="text-red-700 font-bold text-sm leading-relaxed">
+                    Êtes-vous sûr de vouloir avorter cette orchestration ?
+                  </p>
+                  <p className="text-red-800 font-semibold text-xs mt-2">
+                    Cette action arrêtera immédiatement le workflow en cours.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 bg-yellow-500 border-t-2 border-red-500 flex gap-3">
+              <button
+                onClick={() => { setShowCancelConfirm(false); setCancelTargetId(null); }}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded border-2 border-red-800 uppercase text-xs tracking-widest transition-colors"
+              >
+                Non, continuer
+              </button>
+              <button
+                onClick={handleCancel}
+                className="flex-1 bg-black hover:bg-gray-900 text-yellow-400 font-bold py-2 px-4 rounded border-2 border-red-500 uppercase text-xs tracking-widest transition-colors"
+              >
+                Oui, avorter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal - Warning Style */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-md bg-yellow-400 border-4 border-red-500 rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-6">
+              <div className="flex items-start gap-4">
+                {/* Warning Triangle Icon */}
+                <div className="shrink-0 w-16 h-16 bg-red-500 rounded-full flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" className="w-10 h-10 fill-current text-black" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5z"/>
+                    <text x="12" y="18" textAnchor="middle" className="text-[14px] font-black fill-black">!</text>
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-red-600 font-black text-lg uppercase tracking-wider mb-2">⚠️ Attention</h2>
+                  <p className="text-red-700 font-bold text-sm leading-relaxed">
+                    Êtes-vous sûr de vouloir supprimer définitivement ce workflow ?
+                  </p>
+                  <p className="text-red-800 font-semibold text-xs mt-2">
+                    Cette action est irréversible.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-4 bg-yellow-500 border-t-2 border-red-500 flex gap-3">
+              <button
+                onClick={() => { setShowDeleteConfirm(false); setDeleteTargetId(null); }}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded border-2 border-red-800 uppercase text-xs tracking-widest transition-colors"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleDelete}
+                className="flex-1 bg-black hover:bg-gray-900 text-yellow-400 font-bold py-2 px-4 rounded border-2 border-red-500 uppercase text-xs tracking-widest transition-colors"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Relaunch Modal */}
       {showRelaunchModal && selectedWorkflow && (
