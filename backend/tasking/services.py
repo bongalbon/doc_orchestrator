@@ -124,15 +124,26 @@ def active_agents_snapshot() -> list[str]:
     return sorted(list(agents))
 
 
-def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
+def start_workflow(
+    title: str,
+    prompt: str,
+    manager_agent_id: int | None = None,
+    user: "User" = None,
+    provider: str = "",
+    model_name: str = "",
+    ollama_url: str = "",
+) -> "Workflow":
     from tasking.models import Workflow, AuditLog
-    from tasking.tasks import run_workflow_orchestration
     from agents.models import Agent
 
-    if manager_agent is None:
-        manager_agent = Agent.objects.filter(kind="primary", is_active=True).first()
-        if not manager_agent:
-            manager_agent = Agent.objects.create(
+    manager = None
+    if manager_agent_id:
+        manager = Agent.objects.filter(id=manager_agent_id).first()
+    
+    if not manager:
+        manager = Agent.objects.filter(kind="primary", is_active=True).first()
+        if not manager:
+            manager = Agent.objects.create(
                 name="CEO Manager",
                 kind="primary",
                 specialty="management, orchestration",
@@ -143,10 +154,14 @@ def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
         title=title,
         user=user,
         initial_prompt=prompt,
-        manager_agent=manager_agent,
+        manager_agent=manager,
         status="thinking",
+        default_provider=provider,
+        default_model=model_name,
+        ollama_url=ollama_url
     )
     
+    from tasking.tasks import run_workflow_orchestration
     job = run_workflow_orchestration.apply_async(args=[workflow.id])
     workflow.celery_task_id = job.id or ""
     workflow.save(update_fields=["celery_task_id"])

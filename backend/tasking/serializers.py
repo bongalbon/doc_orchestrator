@@ -117,6 +117,9 @@ class WorkflowSerializer(serializers.ModelSerializer):
             "manager_agent_name",
             "status",
             "final_result",
+            "default_provider",
+            "default_model",
+            "ollama_url",
             "steps",
             "created_at",
             "updated_at",
@@ -135,3 +138,11 @@ class WorkflowCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=180)
     prompt = serializers.CharField()
     manager_agent_id = serializers.IntegerField(required=False, allow_null=True)
+    provider = serializers.ChoiceField(
+        choices=["ollama", "openai", "gemini", "grok", "anthropic"],
+        required=False,
+        default="gemini",
+    )
+    model_name = serializers.CharField(required=False, allow_blank=True, default="")
+    api_key = serializers.CharField(required=False, allow_blank=True, default="", write_only=True)
+    ollama_url = serializers.CharField(required=False, allow_blank=True, default="", allow_null=True)

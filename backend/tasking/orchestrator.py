@@ -56,13 +56,17 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
 
         prompt = f"Mission initiale : {self.workflow.initial_prompt}\n\nHistorique :\n{history_text if history_text else 'Aucune étape réalisée.'}\n\nQuelle est votre prochaine action ?"
 
-        provider = "openai"
+        # On utilise le provider et modèle choisis par l'utilisateur, ou Gemini par défaut
+        provider = self.workflow.default_provider or "gemini"
+        model = self.workflow.default_model or "gemini-2.0-flash"
+        
         response = run_llm_task(
             prompt=prompt,
             system_prompt=system_prompt,
             provider=provider,
-            model="gpt-4o",
-            api_key=self._get_api_key(provider)
+            model=model,
+            api_key=self._get_api_key(provider) if provider != "ollama" else None,
+            base_url=self.workflow.ollama_url if provider == "ollama" else None
         )
 
         # 2. Parser la réponse
@@ -113,13 +117,17 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
             # Ici on appelle directement le LLM pour le sous-agent (ou on crée un AgentTask synchrone)
             self.log_step("delegation", f"Délégation à {agent_name} : {task_prompt}", agent=agent)
             
-            provider = "ollama"
+            # On utilise le même provider que le manager choisi par l'utilisateur
+            sub_provider = self.workflow.default_provider or "ollama"
+            sub_model = self.workflow.default_model or "llama3.3:latest"
+
             result = run_llm_task(
                 prompt=task_prompt,
                 system_prompt=agent.system_prompt,
-                provider=provider,
-                model="llama3.3:latest",
-                api_key=self._get_api_key(provider)
+                provider=sub_provider,
+                model=sub_model,
+                api_key=self._get_api_key(sub_provider) if sub_provider != "ollama" else None,
+                base_url=self.workflow.ollama_url if sub_provider == "ollama" else None
             )
             
             self.log_step("execution", f"Résultat de {agent_name} : {result}", agent=agent)

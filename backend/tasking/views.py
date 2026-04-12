@@ -137,8 +137,10 @@ class AgentTaskViewSet(
         # Pour Gemini, l'user veut spécifiquement ces versions (même si futures/expérimentales)
         if provider == "gemini":
             return Response({"models": [
-                "gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-pro", 
-                "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"
+                "gemini-3.1-pro", "gemini-3.0-flash", 
+                "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+                "gemini-2.0-flash", "gemini-2.0-flash-lite-preview-02-05",
+                "gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.5-flash-8b"
             ]})
         
         # Pour les autres, on garde une base solide en attendant une intégration plus poussée
@@ -217,8 +219,11 @@ class WorkflowViewSet(viewsets.ModelViewSet):
         workflow = start_workflow(
             title=payload["title"],
             prompt=payload["prompt"],
-            manager_agent=manager_agent,
-            user=request.user
+            manager_agent_id=payload.get("manager_agent_id"),
+            user=request.user,
+            provider=payload.get("provider", "gemini"),
+            model_name=payload.get("model_name", "gemini-2.0-flash"),
+            ollama_url=payload.get("ollama_url", "")
         )
         return Response(WorkflowSerializer(workflow).data, status=status.HTTP_201_CREATED)
 
