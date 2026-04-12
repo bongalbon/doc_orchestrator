@@ -65,6 +65,15 @@ def run_workflow_orchestration(self, workflow_id: int):
     iteration = 0
 
     while workflow.status not in ["completed", "failed", "awaiting_approval"] and iteration < max_iterations:
+        # Check for cancellation at each step
+        workflow.refresh_from_db(fields=["cancel_requested", "status"])
+        if workflow.cancel_requested:
+            workflow.status = "failed"
+            workflow.final_result = "Orchestration annulée par l'utilisateur."
+            workflow.save(update_fields=["status", "final_result", "updated_at"])
+            broadcast_activity({"event": "workflow_cancelled", "workflow_id": workflow.id})
+            return "cancelled"
+
         manager.run_iteration()
         workflow.refresh_from_db()
         iteration += 1

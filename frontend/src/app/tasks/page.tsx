@@ -259,6 +259,19 @@ export default function TasksPage() {
               <div className="flex flex-col items-end gap-2 shrink-0">
                 <span className="text-[10px] font-mono text-[#ff5c00] uppercase tracking-widest">@{task.assigned_agent_name || "Routeur"}</span>
                 <div className="flex gap-2 mt-2">
+                   {(task.status === 'running' || task.status === 'queued') && (
+                     <button 
+                        className="btn !py-1 !px-3 text-[10px] border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all uppercase"
+                        onClick={async () => {
+                          if (confirm("Voulez-vous vraiment annuler cette tâche ?")) {
+                            await apiPost(`/tasks/${task.id}/cancel/`, {});
+                            await loadAll();
+                          }
+                        }}
+                      >
+                        ⏹ Annuler
+                      </button>
+                   )}
                    {task.status === 'done' && (
                      <>
                       <button className="btn !py-1 !px-3 text-[10px]" onClick={() => {setStudioTask(task); setStudioContent(task.result);}}>Studio</button>

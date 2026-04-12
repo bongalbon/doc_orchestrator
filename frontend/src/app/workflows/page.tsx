@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiPost } from "../../lib/api";
 import WorkflowTimeline from "../../components/workflow/WorkflowTimeline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -29,6 +29,16 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+
+  async function handleCancel(id: number) {
+    if (!confirm("Êtes-vous sûr de vouloir avorter cette orchestration ?")) return;
+    try {
+      await apiPost(`/workflows/${id}/cancel/`, {});
+      await loadWorkflows();
+    } catch (err) {
+      console.error("Cancel failed", err);
+    }
+  }
 
   async function loadWorkflows() {
     try {
@@ -91,9 +101,19 @@ export default function WorkflowsPage() {
                   <span>Lancé le {new Date(selectedWorkflow.created_at).toLocaleString()}</span>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="block text-[10px] text-[#555] uppercase font-mono tracking-widest mb-1">Status Actuel</span>
-                <span className="text-lg font-serif text-[#ff5c00]">{selectedWorkflow.status}</span>
+              <div className="text-right flex flex-col items-end gap-3">
+                <div>
+                  <span className="block text-[10px] text-[#555] uppercase font-mono tracking-widest mb-1">Status Actuel</span>
+                  <span className="text-lg font-serif text-[#ff5c00]">{selectedWorkflow.status}</span>
+                </div>
+                {['thinking', 'delegating', 'reviewing', 'awaiting_approval'].includes(selectedWorkflow.status) && (
+                  <button 
+                    onClick={() => handleCancel(selectedWorkflow.id)}
+                    className="text-[10px] font-mono text-red-500 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
+                  >
+                    ⏹ Avorter l'orchestration
+                  </button>
+                )}
               </div>
             </div>
 

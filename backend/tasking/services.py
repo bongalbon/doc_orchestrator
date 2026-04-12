@@ -82,25 +82,44 @@ def enqueue_task(
 
 
 def running_snapshot() -> list[dict]:
-    from tasking.models import AgentTask
+    from tasking.models import AgentTask, Workflow
 
-    rows = AgentTask.objects.filter(status="running").select_related("assigned_agent")
-    return [
-        {
-            "task_id": row.id,
+    active_tasks = AgentTask.objects.filter(status="running").select_related("assigned_agent")
+    active_workflows = Workflow.objects.filter(status__in=["thinking", "delegating", "reviewing"]).select_related("manager_agent")
+    
+    snapshot = []
+    
+    for row in active_tasks:
+        snapshot.append({
+            "id": row.id,
+            "type": "task",
             "agent_name": row.assigned_agent.name if row.assigned_agent else "Unassigned",
             "title": row.title,
             "status": row.status,
-        }
-        for row in rows
-    ]
+        })
+        
+    for row in active_workflows:
+        snapshot.append({
+            "id": row.id,
+            "type": "workflow",
+            "agent_name": row.manager_agent.name if row.manager_agent else "CEO",
+            "title": row.title,
+            "status": row.status,
+        })
+        
+    return snapshot
 
 
 def active_agents_snapshot() -> list[str]:
-    from tasking.models import AgentTask
+    from tasking.models import AgentTask, Workflow
 
-    running = AgentTask.objects.filter(status="running").select_related("assigned_agent")
-    return sorted(list({t.assigned_agent.name for t in running if t.assigned_agent is not None}))
+    running_tasks = AgentTask.objects.filter(status="running").select_related("assigned_agent")
+    running_wf = Workflow.objects.filter(status__in=["thinking", "delegating", "reviewing"]).select_related("manager_agent")
+    
+    agents = {t.assigned_agent.name for t in running_tasks if t.assigned_agent}
+    agents.update({w.manager_agent.name for w in running_wf if w.manager_agent})
+    
+    return sorted(list(agents))
 
 
 def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
@@ -125,7 +144,9 @@ def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
         status="thinking",
     )
     
-    run_workflow_orchestration.apply_async(args=[workflow.id])
+    job = run_workflow_orchestration.apply_async(args=[workflow.id])
+    workflow.celery_task_id = job.id or ""
+    workflow.save(update_fields=["celery_task_id"])
     
-    AuditLog.objects.create(action="workflow_started", actor=user, metadata={"workflow_id": workflow.id})
+    AuditLog.objects.create(action="workflow_started", actor=user, metadata={"workflow_id": workflow.id, "job_id": job.id})
     return workflow

@@ -6,7 +6,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { apiGet, WS_BASE } from "../../lib/api";
 
 type ActivityResponse = {
-  running_tasks: Array<{ task_id: number; agent_name: string; title: string; status: string }>;
+  running_tasks: Array<{ 
+    id: number; 
+    type: "task" | "workflow"; 
+    agent_name: string; 
+    title: string; 
+    status: string 
+  }>;
   active_agents: string[];
 };
 
@@ -85,13 +91,16 @@ export default function Sidebar() {
           </h2>
           <ul className="space-y-2">
             {activity.running_tasks.map((row) => (
-              <li key={row.task_id} className="text-xs border p-2 rounded flex flex-col relative overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
-                <div className="absolute inset-0 bg-gradient-to-r from-[#ff5c00]/10 via-[#ff5c00]/5 to-transparent animate-pulse"></div>
+              <li key={`${row.type}-${row.id}`} className="text-xs border p-2 rounded flex flex-col relative overflow-hidden" style={{ borderColor: "var(--border-color)" }}>
+                <div className={`absolute inset-0 bg-gradient-to-r ${row.type === 'workflow' ? 'from-purple-500/10 via-purple-500/5' : 'from-[#ff5c00]/10 via-[#ff5c00]/5'} to-transparent animate-pulse`}></div>
                 <div className="relative flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 bg-[#ff5c00] rounded-full animate-spin"></span>
+                  <span className={`w-1.5 h-1.5 ${row.type === 'workflow' ? 'bg-purple-500' : 'bg-[#ff5c00]'} rounded-full animate-pulse`}></span>
                   <span className="text-white block truncate flex-1">{row.title}</span>
                 </div>
-                <span className="relative text-[#ff5c00] mt-1">@{row.agent_name}</span>
+                <div className="relative flex justify-between mt-1 items-center">
+                  <span className={row.type === 'workflow' ? 'text-purple-400' : 'text-[#ff5c00]'}>@{row.agent_name}</span>
+                  <span className="text-[9px] text-[#555] uppercase font-mono">{row.type === 'workflow' ? 'CEO' : 'TASK'}</span>
+                </div>
               </li>
             ))}
             {activity.running_tasks.length === 0 && (

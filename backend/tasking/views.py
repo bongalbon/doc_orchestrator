@@ -210,6 +210,29 @@ class WorkflowViewSet(viewsets.ModelViewSet):
         workflow.save()
         return Response({"status": "completed"})
 
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        workflow = self.get_object()
+        if workflow.status in {"completed", "failed"}:
+            return Response({"detail": "Workflow already finished."}, status=400)
+        
+        workflow.cancel_requested = True
+        workflow.status = "failed"
+        workflow.final_result = "Annulé par l'utilisateur."
+        workflow.save(update_fields=["cancel_requested", "status", "final_result", "updated_at"])
+        
+        if workflow.celery_task_id:
+            try:
+                from tasking.tasks import run_workflow_orchestration
+                run_workflow_orchestration.AsyncResult(workflow.celery_task_id).revoke(terminate=True, signal="SIGKILL")
+            except Exception:
+                pass
+                
+        AuditLog.objects.create(action="workflow_cancelled", actor=request.user, metadata={"workflow_id": workflow.id})
+        broadcast_activity({"event": "workflow_cancelled", "workflow_id": workflow.id})
+        
+        return Response({"ok": True})
+
     @action(detail=True, methods=["post"], url_path="reject")
     def reject(self, request, pk=None):
         workflow = self.get_object()
