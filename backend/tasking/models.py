@@ -75,3 +75,63 @@ class AuditLog(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+
+
+class Workflow(models.Model):
+    STATUS_CHOICES = (
+        ("thinking", "Manager Thinking"),
+        ("delegating", "Delegating Tasks"),
+        ("reviewing", "Reviewing Results"),
+        ("awaiting_approval", "Awaiting User Approval"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    )
+
+    title = models.CharField(max_length=180)
+    initial_prompt = models.TextField()
+    manager_agent = models.ForeignKey(Agent, on_delete=models.CASCADE, related_name="managed_workflows")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="thinking")
+    final_result = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+
+class WorkflowStep(models.Model):
+    STEP_TYPES = (
+        ("analysis", "Manager Analysis"),
+        ("recruitment", "Agent Recruitment"),
+        ("delegation", "Task Delegation"),
+        ("execution", "Agent Execution"),
+        ("review", "Manager Review"),
+    )
+
+    workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name="steps")
+    agent = models.ForeignKey(Agent, null=True, blank=True, on_delete=models.SET_NULL)
+    step_type = models.CharField(max_length=20, choices=STEP_TYPES)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("created_at",)
+
+
+class Notification(models.Model):
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+        ("read", "Read"),
+    )
+
+    workflow = models.ForeignKey(Workflow, on_delete=models.CASCADE, related_name="notifications")
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="workflow_notifications")
+    message = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    user_feedback = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)

@@ -42,6 +42,7 @@ export default function Sidebar() {
     { href: "/", label: "Tableau de Bord", icon: "📊" },
     { href: "/agents", label: "Agents", icon: "🤖" },
     { href: "/tasks", label: "Tâches", icon: "📋" },
+    { href: "/workflows", label: "Workflows CEO", icon: "⚡" },
     { href: "/settings", label: "Paramètres", icon: "⚙️" },
   ];
 

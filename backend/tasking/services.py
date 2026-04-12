@@ -94,3 +94,31 @@ def active_agents_snapshot() -> list[str]:
 
     running = AgentTask.objects.filter(status="running").select_related("assigned_agent")
     return sorted(list({t.assigned_agent.name for t in running if t.assigned_agent is not None}))
+
+
+def start_workflow(title: str, prompt: str, manager_agent, user) -> "Workflow":
+    from tasking.models import Workflow, AuditLog
+    from tasking.tasks import run_workflow_orchestration
+    from agents.models import Agent
+
+    if manager_agent is None:
+        manager_agent = Agent.objects.filter(kind="primary", is_active=True).first()
+        if not manager_agent:
+            manager_agent = Agent.objects.create(
+                name="CEO Manager",
+                kind="primary",
+                specialty="management, orchestration",
+                system_prompt="You are the CEO of the agent team. You orchestrate tasks.",
+            )
+
+    workflow = Workflow.objects.create(
+        title=title,
+        initial_prompt=prompt,
+        manager_agent=manager_agent,
+        status="thinking",
+    )
+    
+    run_workflow_orchestration.apply_async(args=[workflow.id])
+    
+    AuditLog.objects.create(action="workflow_started", actor=user, metadata={"workflow_id": workflow.id})
+    return workflow

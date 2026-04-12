@@ -50,3 +50,34 @@ def execute_agent_task(self, task_id: int):
         raise e
         
     return "done"
+
+
+@shared_task(bind=True)
+def run_workflow_orchestration(self, workflow_id: int):
+    from tasking.models import Workflow, Notification
+    from tasking.orchestrator import OrchestrationManager
+    from django.contrib.auth.models import User
+
+    workflow = Workflow.objects.get(id=workflow_id)
+    manager = OrchestrationManager(workflow_id)
+
+    max_iterations = 10
+    iteration = 0
+
+    while workflow.status not in ["completed", "failed", "awaiting_approval"] and iteration < max_iterations:
+        manager.run_iteration()
+        workflow.refresh_from_db()
+        iteration += 1
+
+    if workflow.status == "awaiting_approval":
+        # Créer une notification pour l'utilisateur (on prend le premier superuser par défaut pour l'exemple)
+        user = User.objects.filter(is_superuser=True).first()
+        if user:
+            Notification.objects.create(
+                workflow=workflow,
+                user=user,
+                message=f"Le Manager a terminé le travail sur : {workflow.title}. En attente de votre validation."
+            )
+            broadcast_activity({"event": "notification_created", "workflow_id": workflow.id})
+
+    return "workflow_step_completed"

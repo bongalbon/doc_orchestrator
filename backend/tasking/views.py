@@ -15,10 +15,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from agents.models import Agent
-from tasking.models import AgentTask, AuditLog
+from tasking.models import AgentTask, AuditLog, Workflow, Notification, WorkflowStep
 from tasking.permissions import IsOperatorOrReadOnly
-from tasking.serializers import AgentTaskSerializer, TaskCreateSerializer
-from tasking.services import active_agents_snapshot, enqueue_task, running_snapshot
+from tasking.serializers import (
+    AgentTaskSerializer, TaskCreateSerializer, 
+    WorkflowSerializer, NotificationSerializer, WorkflowCreateSerializer
+)
+from tasking.services import (
+    active_agents_snapshot, enqueue_task, running_snapshot, start_workflow
+)
 from tasking.tasks import execute_agent_task
 
 
@@ -169,3 +174,64 @@ class AgentTaskViewSet(
         
         buffer.seek(0)
         return FileResponse(buffer, as_attachment=True, filename=filename, content_type=content_type)
+
+
+class WorkflowViewSet(viewsets.ModelViewSet):
+    queryset = Workflow.objects.prefetch_related("steps").all()
+    serializer_class = WorkflowSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        ser = WorkflowCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        payload = ser.validated_data
+        
+        manager_agent = None
+        if payload.get("manager_agent_id"):
+            manager_agent = get_object_or_404(Agent, id=payload["manager_agent_id"])
+            
+        workflow = start_workflow(
+            title=payload["title"],
+            prompt=payload["prompt"],
+            manager_agent=manager_agent,
+            user=request.user
+        )
+        return Response(WorkflowSerializer(workflow).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        workflow = self.get_object()
+        notification = workflow.notifications.filter(status="pending").first()
+        if notification:
+            notification.status = "approved"
+            notification.save()
+        workflow.status = "completed"
+        workflow.save()
+        return Response({"status": "completed"})
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        workflow = self.get_object()
+        feedback = request.data.get("feedback", "No feedback provided.")
+        notification = workflow.notifications.filter(status="pending").first()
+        if notification:
+            notification.status = "rejected"
+            notification.user_feedback = feedback
+            notification.save()
+        
+        # Reset workflow to thinking to re-run iteration
+        workflow.status = "thinking"
+        workflow.save()
+        
+        from tasking.tasks import run_workflow_orchestration
+        run_workflow_orchestration.apply_async(args=[workflow.id])
+        return Response({"status": "resubmitted"})
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Notification.objects.all()
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user)

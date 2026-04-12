@@ -44,6 +44,7 @@ export default function TasksPage() {
   const [modelName, setModelName] = useState("gemini-1.5-flash");
   const [targetAgentId, setTargetAgentId] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
+  const [isCEOMode, setIsCEOMode] = useState(false);
 
   // Studio & Retry States
   const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
@@ -86,14 +87,22 @@ export default function TasksPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      await apiPost<AgentTask>("/tasks/", {
-        title: taskTitle,
-        prompt: taskPrompt,
-        provider,
-        model_name: modelName,
-        api_key: apiKey || window.localStorage.getItem(`apiKey_${provider}`) || "",
-        requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
-      });
+      if (isCEOMode) {
+        await apiPost("/workflows/", {
+          title: taskTitle,
+          prompt: taskPrompt,
+          manager_agent_id: targetAgentId ? Number(targetAgentId) : null,
+        });
+      } else {
+        await apiPost<AgentTask>("/tasks/", {
+          title: taskTitle,
+          prompt: taskPrompt,
+          provider,
+          model_name: modelName,
+          api_key: apiKey || window.localStorage.getItem(`apiKey_${provider}`) || "",
+          requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
+        });
+      }
       setTaskPrompt("");
       setShowCreateForm(false);
       await loadAll();
@@ -284,6 +293,18 @@ export default function TasksPage() {
               <div className="col-span-2">
                 <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Titre de la tâche</label>
                 <input className="input w-full" value={taskTitle} onChange={(e) => setTaskTitle(e.target.value)} required />
+              </div>
+              <div className="col-span-2 flex items-center gap-2 p-3 bg-[#ff5c00]/5 border border-[#ff5c00]/20 rounded-lg">
+                <input 
+                  type="checkbox" 
+                  id="ceoMode"
+                  className="w-4 h-4 accent-[#ff5c00]" 
+                  checked={isCEOMode} 
+                  onChange={(e) => setIsCEOMode(e.target.checked)} 
+                />
+                <label htmlFor="ceoMode" className="text-xs font-bold text-[#ff5c00] cursor-pointer uppercase tracking-tighter">
+                  Activer le Mode CEO (Orchestration multi-agents & Recrutement Autonome)
+                </label>
               </div>
               <div className="col-span-2">
                 <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Prompt de l'utilisateur</label>

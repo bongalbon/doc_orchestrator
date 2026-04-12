@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { apiGet } from "../lib/api";
+import NotificationCenter from "../components/notifications/NotificationCenter";
 
 type AgentTask = {
   id: number;
@@ -78,6 +79,8 @@ export default function Dashboard() {
         <h1 className="text-4xl font-serif mb-2">Tableau de Bord</h1>
         <p className="text-[#888] font-mono uppercase tracking-widest text-xs">Vue d'ensemble de l'orchestration</p>
       </header>
+
+      <NotificationCenter />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">

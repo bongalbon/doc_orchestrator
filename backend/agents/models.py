@@ -18,6 +18,7 @@ class Agent(models.Model):
         on_delete=models.CASCADE,
         related_name="sub_agents",
     )
+    is_recruited = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

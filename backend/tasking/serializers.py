@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from agents.models import Agent
-from .models import AgentTask
+from .models import AgentTask, Workflow, WorkflowStep, Notification
 
 
 class AgentTaskSerializer(serializers.ModelSerializer):
@@ -56,3 +56,45 @@ class TaskCreateSerializer(serializers.Serializer):
     api_key = serializers.CharField(required=False, allow_blank=True, default="", write_only=True)
     requested_agent_id = serializers.IntegerField(required=False, allow_null=True)
     timeout_seconds = serializers.IntegerField(required=False, min_value=10, max_value=3600, default=180)
+
+
+class WorkflowStepSerializer(serializers.ModelSerializer):
+    agent_name = serializers.CharField(source="agent.name", read_only=True)
+
+    class Meta:
+        model = WorkflowStep
+        fields = ("id", "step_type", "content", "agent", "agent_name", "created_at")
+
+
+class WorkflowSerializer(serializers.ModelSerializer):
+    steps = WorkflowStepSerializer(many=True, read_only=True)
+    manager_agent_name = serializers.CharField(source="manager_agent.name", read_only=True)
+
+    class Meta:
+        model = Workflow
+        fields = (
+            "id",
+            "title",
+            "initial_prompt",
+            "manager_agent",
+            "manager_agent_name",
+            "status",
+            "final_result",
+            "steps",
+            "created_at",
+            "updated_at",
+        )
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    workflow_title = serializers.CharField(source="workflow.title", read_only=True)
+
+    class Meta:
+        model = Notification
+        fields = ("id", "workflow", "workflow_title", "message", "status", "user_feedback", "created_at")
+
+
+class WorkflowCreateSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=180)
+    prompt = serializers.CharField()
+    manager_agent_id = serializers.IntegerField(required=False, allow_null=True)
