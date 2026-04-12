@@ -1,7 +1,42 @@
 from rest_framework import serializers
 
 from agents.models import Agent
-from .models import AgentTask, Workflow, WorkflowStep, Notification
+from .models import AgentTask, Workflow, WorkflowStep, Notification, ProviderCredential
+
+
+class ProviderCredentialSerializer(serializers.ModelSerializer):
+    api_key = serializers.CharField(write_only=True)
+    masked_key = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProviderCredential
+        fields = ("id", "provider", "api_key", "masked_key", "is_active", "created_at", "updated_at")
+        read_only_fields = ("created_at", "updated_at")
+
+    def get_masked_key(self, obj):
+        decrypted = obj.get_key()
+        if not decrypted or decrypted == "ERROR_DECRYPTION_FAILED":
+            return "********"
+        if len(decrypted) <= 8:
+            return "****" + decrypted[-2:]
+        return decrypted[:4] + "...." + decrypted[-4:]
+
+    def create(self, validated_data):
+        plain_key = validated_data.pop("api_key")
+        user = self.context["request"].user
+        instance, _ = ProviderCredential.objects.update_or_create(
+            user=user,
+            provider=validated_data["provider"],
+            defaults={"is_active": validated_data.get("is_active", True)}
+        )
+        instance.set_key(plain_key)
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        if "api_key" in validated_data:
+            instance.set_key(validated_data.pop("api_key"))
+        return super().update(instance, validated_data)
 
 
 class AgentTaskSerializer(serializers.ModelSerializer):

@@ -48,8 +48,15 @@ def enqueue_task(
     model_name: str = "",
     api_key: str = "",
 ) -> "AgentTask":
-    from tasking.models import AgentTask, AuditLog
+    from tasking.models import AgentTask, AuditLog, ProviderCredential
     from tasking.tasks import execute_agent_task
+
+    # Handle automatic API Key retrieval from stored credentials
+    effective_api_key = api_key
+    if not effective_api_key and actor:
+        storage = ProviderCredential.objects.filter(user=actor, provider=provider, is_active=True).first()
+        if storage:
+            effective_api_key = storage.get_key()
 
     assigned_agent = choose_assigned_agent(prompt=prompt, requested_agent=requested_agent)
     task = AgentTask.objects.create(
@@ -59,7 +66,7 @@ def enqueue_task(
         assigned_agent=assigned_agent,
         provider=provider,
         model_name=model_name,
-        api_key=api_key,
+        api_key=effective_api_key,
         status="queued",
         timeout_seconds=timeout_seconds,
     )

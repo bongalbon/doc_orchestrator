@@ -21,13 +21,14 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from agents.views import AgentViewSet
 from orchestrator_backend.auth_views import audit_logs, login, register, set_user_role, users_roles
-from tasking.views import AgentTaskViewSet, WorkflowViewSet, NotificationViewSet
+from tasking.views import AgentTaskViewSet, WorkflowViewSet, NotificationViewSet, CredentialViewSet
 
 router = DefaultRouter()
 router.register("agents", AgentViewSet, basename="agents")
 router.register("tasks", AgentTaskViewSet, basename="tasks")
 router.register("workflows", WorkflowViewSet, basename="workflows")
 router.register("notifications", NotificationViewSet, basename="notifications")
+router.register("credentials", CredentialViewSet, basename="credentials")
 
 urlpatterns = [
     path('admin/', admin.site.urls),

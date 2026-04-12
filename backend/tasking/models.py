@@ -135,3 +135,27 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+
+
+class ProviderCredential(models.Model):
+    user = models.ForeignKey("auth.User", on_delete=models.CASCADE, related_name="provider_credentials")
+    provider = models.CharField(max_length=40)  # e.g. 'gemini', 'openai', 'anthropic', 'ollama', 'grok'
+    api_key_encrypted = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "provider")
+        ordering = ("provider",)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.provider}"
+
+    def set_key(self, plain_key: str):
+        from .utils import KeyEncryption
+        self.api_key_encrypted = KeyEncryption.encrypt(plain_key)
+
+    def get_key(self) -> str:
+        from .utils import KeyEncryption
+        return KeyEncryption.decrypt(self.api_key_encrypted)

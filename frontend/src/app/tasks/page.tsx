@@ -99,7 +99,7 @@ export default function TasksPage() {
           prompt: taskPrompt,
           provider,
           model_name: modelName,
-          api_key: apiKey || window.localStorage.getItem(`apiKey_${provider}`) || "",
+          api_key: apiKey || "", // If empty, backend will fetch from ProviderCredential
           requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
         });
       }
@@ -335,6 +335,18 @@ export default function TasksPage() {
                   <option value="ollama">Local Ollama</option>
                   <option value="grok">xAI Grok</option>
                 </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">
+                  Clé API (Optionnel)
+                </label>
+                <input 
+                  type="password" 
+                  className="input w-full text-xs" 
+                  placeholder="Laisser vide pour utiliser la clé enregistrée dans vos paramètres" 
+                  value={apiKey} 
+                  onChange={(e) => setApiKey(e.target.value)} 
+                />
               </div>
               <div className="col-span-2 pt-4 flex gap-3">
                 <button type="button" onClick={() => setShowCreateForm(false)} className="btn flex-1">Annuler</button>

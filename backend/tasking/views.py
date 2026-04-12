@@ -15,11 +15,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from agents.models import Agent
-from tasking.models import AgentTask, AuditLog, Workflow, Notification, WorkflowStep
+from tasking.models import AgentTask, AuditLog, Workflow, Notification, WorkflowStep, ProviderCredential
 from tasking.permissions import IsOperatorOrReadOnly
 from tasking.serializers import (
     AgentTaskSerializer, TaskCreateSerializer, 
-    WorkflowSerializer, NotificationSerializer, WorkflowCreateSerializer
+    WorkflowSerializer, NotificationSerializer, WorkflowCreateSerializer,
+    ProviderCredentialSerializer
 )
 from tasking.services import (
     active_agents_snapshot, enqueue_task, running_snapshot, start_workflow
@@ -235,3 +236,14 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return self.queryset.filter(user=self.request.user)
+
+
+class CredentialViewSet(viewsets.ModelViewSet):
+    serializer_class = ProviderCredentialSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return ProviderCredential.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
