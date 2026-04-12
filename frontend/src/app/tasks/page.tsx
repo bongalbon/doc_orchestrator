@@ -41,10 +41,14 @@ export default function TasksPage() {
   const [taskTitle, setTaskTitle] = useState("Nouvelle Analyse");
   const [taskPrompt, setTaskPrompt] = useState("");
   const [provider, setProvider] = useState("gemini");
-  const [modelName, setModelName] = useState("gemini-1.5-flash");
+  const [modelName, setModelName] = useState("gemini-2.0-flash");
   const [targetAgentId, setTargetAgentId] = useState<string>("");
   const [apiKey, setApiKey] = useState("");
   const [isCEOMode, setIsCEOMode] = useState(false);
+  const [isOllamaCloud, setIsOllamaCloud] = useState(false);
+  const [ollamaCloudUrl, setOllamaCloudUrl] = useState("http://localhost:11434");
+  const [dynamicModels, setDynamicModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
 
   // Studio & Retry States
   const [studioTask, setStudioTask] = useState<AgentTask | null>(null);
@@ -52,15 +56,43 @@ export default function TasksPage() {
   const [retryTaskModal, setRetryTaskModal] = useState<AgentTask | null>(null);
   const [retryAgentId, setRetryAgentId] = useState<string>("");
   const [retryProvider, setRetryProvider] = useState<string>("gemini");
-  const [retryModel, setRetryModel] = useState<string>("gemini-1.5-flash");
+  const [retryModel, setRetryModel] = useState<string>("gemini-2.0-flash");
 
-  const PROVIDER_MODELS: Record<string, string[]> = {
-    ollama: ["llama3.1:8b", "mistral", "gemma2"],
-    openai: ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
-    gemini: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-vision"],
-    anthropic: ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"],
+  const PROVIDER_MODELS_FALLBACK: Record<string, string[]> = {
+    ollama: ["llama3.3:latest", "llama3.2:latest", "llama3.1:8b"],
+    openai: ["gpt-4o", "gpt-4o-mini", "o1-mini"],
+    gemini: ["gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    anthropic: ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022"],
     grok: ["grok-2-1212", "grok-beta"],
   };
+
+  async function loadModelsForProvider(p: string, isCloud: boolean, cloudUrl?: string) {
+    setIsLoadingModels(true);
+    try {
+      let endpoint = `/tasks/provider-models/?provider=${p}`;
+      if (p === "ollama") {
+        endpoint = isCloud && cloudUrl ? `/tasks/ollama-models/?url=${encodeURIComponent(cloudUrl)}` : `/tasks/ollama-models/`;
+      }
+      const data = await apiGet<{ models: string[], error?: string }>(endpoint);
+      if (data.models && data.models.length > 0) {
+        setDynamicModels(data.models);
+        if (!data.models.includes(modelName)) setModelName(data.models[0]);
+      } else {
+        setDynamicModels(PROVIDER_MODELS_FALLBACK[p] || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch models", err);
+      setDynamicModels(PROVIDER_MODELS_FALLBACK[p] || []);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }
+
+  useEffect(() => {
+    if (showCreateForm) {
+      loadModelsForProvider(provider, isOllamaCloud, ollamaCloudUrl);
+    }
+  }, [provider, isOllamaCloud, showCreateForm]);
 
   async function loadAll() {
     try {
@@ -100,6 +132,7 @@ export default function TasksPage() {
           provider,
           model_name: modelName,
           api_key: apiKey || "", // If empty, backend will fetch from ProviderCredential
+          ollama_url: (provider === "ollama" && isOllamaCloud) ? ollamaCloudUrl : null,
           requested_agent_id: targetAgentId ? Number(targetAgentId) : null,
         });
       }
@@ -120,6 +153,12 @@ export default function TasksPage() {
     setProvider(task.provider || "gemini");
     setModelName(task.model || "");
     setTargetAgentId(task.assigned_agent_id?.toString() || "");
+    if (task.provider === "ollama" && task.ollama_url) {
+      setIsOllamaCloud(true);
+      setOllamaCloudUrl(task.ollama_url);
+    } else {
+      setIsOllamaCloud(false);
+    }
     setIsCEOMode(false);
     setShowCreateForm(true);
   }
@@ -323,23 +362,48 @@ export default function TasksPage() {
                 <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Fournisseur</label>
                 <select className="input w-full text-xs" value={provider} onChange={(e) => {
                   setProvider(e.target.value);
-                  setModelName(PROVIDER_MODELS[e.target.value][0]);
+                  setIsOllamaCloud(false);
                 }}>
                   <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI ChatGPT</option>
                   <option value="anthropic">Anthropic Claude</option>
-                  <option value="ollama">Local Ollama</option>
+                  <option value="ollama">Ollama</option>
                   <option value="grok">xAI Grok</option>
                 </select>
+                {provider === "ollama" && (
+                   <div className="mt-2 flex items-center gap-3">
+                      <label className="text-[9px] uppercase font-mono flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="ollamaMode" checked={!isOllamaCloud} onChange={() => setIsOllamaCloud(false)} /> Local
+                      </label>
+                      <label className="text-[9px] uppercase font-mono flex items-center gap-1 cursor-pointer">
+                        <input type="radio" name="ollamaMode" checked={isOllamaCloud} onChange={() => setIsOllamaCloud(true)} /> Cloud/Remote
+                      </label>
+                   </div>
+                )}
+                {provider === "ollama" && isOllamaCloud && (
+                   <input 
+                     className="input w-full mt-2 text-[10px]" 
+                     placeholder="http://votre-ollama:11434"
+                     value={ollamaCloudUrl}
+                     onChange={(e) => setOllamaCloudUrl(e.target.value)}
+                     onBlur={() => loadModelsForProvider(provider, isOllamaCloud, ollamaCloudUrl)}
+                   />
+                )}
               </div>
               <div>
-                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Modèle d'IA</label>
-                <select className="input w-full text-xs" value={modelName} onChange={(e) => setModelName(e.target.value)}>
-                  {PROVIDER_MODELS[provider]?.map(m => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                  <option value="custom">-- Personnalisé --</option>
-                </select>
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block flex justify-between">
+                  <span>Modèle d'IA</span>
+                  {isLoadingModels && <span className="animate-spin">⌛</span>}
+                </label>
+                <div className="flex gap-1">
+                  <select className="input w-full text-xs" value={modelName} onChange={(e) => setModelName(e.target.value)}>
+                    {dynamicModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                    <option value="custom">-- Personnalisé --</option>
+                  </select>
+                  <button type="button" className="btn !p-1 text-[10px]" title="Rafraîchir" onClick={() => loadModelsForProvider(provider, isOllamaCloud, ollamaCloudUrl)}>🔄</button>
+                </div>
                 {modelName === "custom" && (
                    <input 
                      className="input w-full mt-2 text-xs" 

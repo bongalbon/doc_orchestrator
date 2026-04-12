@@ -47,6 +47,7 @@ def enqueue_task(
     provider: str = "ollama",
     model_name: str = "",
     api_key: str = "",
+    ollama_url: str = "",
 ) -> "AgentTask":
     from tasking.models import AgentTask, AuditLog, ProviderCredential
     from tasking.tasks import execute_agent_task
@@ -67,6 +68,7 @@ def enqueue_task(
         provider=provider,
         model_name=model_name,
         api_key=effective_api_key,
+        ollama_url=ollama_url,
         status="queued",
         timeout_seconds=timeout_seconds,
     )

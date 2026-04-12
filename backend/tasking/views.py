@@ -58,6 +58,7 @@ class AgentTaskViewSet(
             provider=payload["provider"],
             model_name=payload["model_name"],
             api_key=payload.get("api_key", ""),
+            ollama_url=payload.get("ollama_url", ""),
         )
         serialized = AgentTaskSerializer(task)
         return Response(serialized.data, status=status.HTTP_201_CREATED)
@@ -115,9 +116,10 @@ class AgentTaskViewSet(
 
     @action(detail=False, methods=["get"], url_path="ollama-models")
     def ollama_models(self, request):
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+        custom_url = request.query_params.get("url")
+        ollama_url = custom_url or os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
         try:
-            with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=3) as response:
+            with urllib.request.urlopen(f"{ollama_url}/api/tags", timeout=4) as response:
                 if response.status == 200:
                     data = json.loads(response.read().decode())
                     models = [m["name"] for m in data.get("models", [])]
@@ -125,6 +127,27 @@ class AgentTaskViewSet(
         except Exception as e:
             return Response({"models": [], "error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response({"models": []})
+
+    @action(detail=False, methods=["get"], url_path="provider-models")
+    def provider_models(self, request):
+        provider = request.query_params.get("provider", "gemini")
+        # En fonction du provider, on peut renvoyer une liste hardcodée augmentée 
+        # ou appeler LiteLLM/API directes si on a une clé active pour l'user.
+        
+        # Pour Gemini, l'user veut spécifiquement ces versions (même si futures/expérimentales)
+        if provider == "gemini":
+            return Response({"models": [
+                "gemini-3.1-pro", "gemini-3.0-flash", "gemini-2.5-pro", 
+                "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"
+            ]})
+        
+        # Pour les autres, on garde une base solide en attendant une intégration plus poussée
+        defaults = {
+            "openai": ["o1-mini", "o1-preview", "gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+            "anthropic": ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022", "claude-3-opus-20240229"],
+            "grok": ["grok-2-1212", "grok-beta"],
+        }
+        return Response({"models": defaults.get(provider, [])})
 
     @action(detail=True, methods=["get"], url_path="export")
     def export_document(self, request, pk=None):

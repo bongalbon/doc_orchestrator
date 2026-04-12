@@ -61,7 +61,7 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
             prompt=prompt,
             system_prompt=system_prompt,
             provider=provider,
-            model="gpt-4o-mini",
+            model="gpt-4o",
             api_key=self._get_api_key(provider)
         )
 
@@ -118,7 +118,7 @@ FORMAT DE RÉPONSE ATTENDU (Utilisez EXACTEMENT ces balises) :
                 prompt=task_prompt,
                 system_prompt=agent.system_prompt,
                 provider=provider,
-                model="llama3.1:8b",
+                model="llama3.3:latest",
                 api_key=self._get_api_key(provider)
             )
             

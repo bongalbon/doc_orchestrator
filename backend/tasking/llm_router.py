@@ -5,11 +5,11 @@ from litellm import completion
 
 def _default_model_for_provider(provider: str) -> str:
     defaults = {
-        "ollama": os.getenv("OLLAMA_MODEL", "ollama/llama3.1:8b"),
-        "openai": os.getenv("OPENAI_MODEL", "openai/gpt-4o-mini"),
-        "gemini": os.getenv("GEMINI_MODEL", "gemini/gemini-2.5-flash"),
+        "ollama": os.getenv("OLLAMA_MODEL", "ollama/llama3.3:latest"),
+        "openai": os.getenv("OPENAI_MODEL", "openai/gpt-4o"),
+        "gemini": os.getenv("GEMINI_MODEL", "gemini/gemini-2.0-flash"),
         "grok": os.getenv("GROK_MODEL", "xai/grok-2-latest"),
-        "anthropic": os.getenv("ANTHROPIC_MODEL", "anthropic/claude-3-5-sonnet-20240620"),
+        "anthropic": os.getenv("ANTHROPIC_MODEL", "anthropic/claude-3-7-sonnet-20250219"),
     }
     return defaults.get(provider, os.getenv("DEFAULT_MODEL", "openai/gpt-4o-mini"))
 
@@ -36,7 +36,7 @@ def resolve_model(provider: str | None, model: str | None) -> str:
     return final_model
 
 
-def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model: str | None, api_key: str | None = None) -> str:
+def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model: str | None, api_key: str | None = None, base_url: str | None = None) -> str:
     final_model = resolve_model(provider=provider, model=model)
     
     kwargs = {
@@ -51,6 +51,8 @@ def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model
     
     if api_key:
         kwargs["api_key"] = api_key
+    if base_url:
+        kwargs["api_base"] = base_url # LiteLLM uses api_base
         
     response = completion(**kwargs)
     return response["choices"][0]["message"]["content"]
