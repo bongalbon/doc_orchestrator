@@ -18,8 +18,8 @@ export default function NotificationCenter() {
 
   async function loadNotifications() {
     try {
-      const data = await apiGet<Notification[]>("/notifications/");
-      setNotifications(data);
+      const data = await apiGet<any>("/notifications/");
+      setNotifications(Array.isArray(data) ? data : (data?.results || []));
     } catch (err) {
       console.error("Failed to load notifications", err);
     } finally {
@@ -42,9 +42,10 @@ export default function NotificationCenter() {
     }
   }
 
-  const pending = notifications.filter(n => n.status === "pending");
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
+  const pending = safeNotifications.filter(n => n?.status === "pending");
 
-  if (loading && notifications.length === 0) return null;
+  if (loading && safeNotifications.length === 0) return null;
 
   return (
     <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden mb-8">

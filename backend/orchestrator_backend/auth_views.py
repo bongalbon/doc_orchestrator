@@ -1,4 +1,8 @@
+import os
 from django.contrib.auth.models import Group, User
+from django.conf import settings
+from django.utils import timezone
+from django.db import connection
 from rest_framework import permissions, status
 from rest_framework.authtoken.models import Token
 from rest_framework.decorators import api_view, permission_classes
@@ -120,3 +124,59 @@ def audit_logs(request):
             ]
         }
     )
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def health_check(request):
+    """
+    Simple health check endpoint for container orchestration and monitoring.
+    Returns 200 OK if the service is running, 503 if there are issues.
+    """
+    # Vérifications de base de la santé
+    health_status = {
+        "status": "ok",
+        "service": "doc_orchestrator_backend",
+        "timestamp": timezone.now().isoformat(),
+        "version": "2.0.0",  # À mettre à jour selon votre stratégie de versionnement
+        "checks": {}
+    }
+
+    overall_status = True
+
+    # Vérifier la connexion à la base de données
+    try:
+        from django.db import connection
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        row = cursor.fetchone()
+        if row is None or row[0] != 1:
+            health_status["checks"]["database"] = {"status": "fail", "message": "Database query failed"}
+            overall_status = False
+        else:
+            health_status["checks"]["database"] = {"status": "ok", "message": "Database connection successful"}
+    except Exception as e:
+        health_status["checks"]["database"] = {"status": "fail", "message": f"Database connection error: {str(e)}"}
+        overall_status = False
+
+    # Vérifier la connexion à Redis (optionnel, car peut ne pas être configuré en dev)
+    try:
+        import redis
+        redis_url = os.getenv("REDIS_URL", "redis://redis:6379/1")
+        redis_conn = redis.from_url(redis_url, socket_connect_timeout=2)
+        redis_conn.ping()
+        health_status["checks"]["redis"] = {"status": "ok", "message": "Redis connection successful"}
+    except Exception as e:
+        # En développement, Redis peut ne pas être obligatoire, donc on ne fail pas forcément
+        if not settings.DEBUG:
+            health_status["checks"]["redis"] = {"status": "fail", "message": f"Redis connection error: {str(e)}"}
+            overall_status = False
+        else:
+            health_status["checks"]["redis"] = {"status": "warning", "message": f"Redis not available (dev mode): {str(e)}"}
+
+    # Déterminer le code de statut HTTP
+    if overall_status:
+        return Response(health_status, status=status.HTTP_200_OK)
+    else:
+        health_status["status"] = "error"
+        return Response(health_status, status=status.HTTP_503_SERVICE_UNAVAILABLE)

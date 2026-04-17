@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, FormEvent } from "react";
+import React, { useEffect, useMemo, useState, useCallback, FormEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiGet, apiPost, apiFetch, API_BASE } from "../../lib/api";
@@ -84,7 +84,7 @@ export default function TasksPage() {
     grok: ["grok-2-1212", "grok-beta"],
   };
 
-  async function loadModelsForProvider(p: string, isCloud: boolean, cloudUrl?: string) {
+  const loadModelsForProvider = useCallback(async (p: string, isCloud: boolean, cloudUrl?: string) => {
     setIsLoadingModels(true);
     try {
       let endpoint = `/tasks/provider-models/?provider=${p}`;
@@ -104,7 +104,7 @@ export default function TasksPage() {
     } finally {
       setIsLoadingModels(false);
     }
-  }
+  }, [modelName]);
 
   useEffect(() => {
     if (showCreateForm) {
@@ -114,15 +114,16 @@ export default function TasksPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  async function loadAll() {
+  const loadAll = useCallback(async () => {
     try {
       setError(null);
       const [taskData, agentsData] = await Promise.all([
-        apiGet<AgentTask[]>("/tasks/"),
-        apiGet<Agent[]>("/agents/"),
+        apiGet<any>("/tasks/"),
+        apiGet<any>("/agents/"),
       ]);
-      setTasks(taskData);
-      setAgents(agentsData);
+      
+      setTasks(Array.isArray(taskData) ? taskData : (taskData?.results || []));
+      setAgents(Array.isArray(agentsData) ? agentsData : (agentsData?.results || []));
     } catch (err: any) {
       console.error("Failed to load tasks data", err);
       const msg = err?.message || "";
@@ -134,15 +135,15 @@ export default function TasksPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     loadAll();
     const interval = setInterval(loadAll, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [loadAll]);
 
-  async function handleCreateTask(e: FormEvent) {
+  const handleCreateTask = useCallback(async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
@@ -172,7 +173,7 @@ export default function TasksPage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [isCEOMode, taskTitle, taskPrompt, targetAgentId, provider, modelName, apiKey, isOllamaCloud, ollamaCloudUrl, loadAll]);
 
   // Old handleRelaunch - kept for compatibility with failed tasks retry button
   function handleRelaunchOld(task: AgentTask) {
@@ -228,7 +229,7 @@ export default function TasksPage() {
     loadRelaunchModelsForProvider(task.provider || "gemini", false);
   }
 
-  async function handleRelaunchSubmit(e: FormEvent) {
+  const handleRelaunchSubmit = useCallback(async (e: FormEvent) => {
     e.preventDefault();
     if (!relaunchTaskModal) return;
     setBusy(true);
@@ -255,7 +256,7 @@ export default function TasksPage() {
     } finally {
       setBusy(false);
     }
-  }
+  }, [relaunchTaskModal, relaunchTitle, relaunchPrompt, relaunchProvider, relaunchModel, relaunchApiKey, relaunchAgentId, relaunchIsOllamaCloud, relaunchOllamaUrl, loadAll]);
 
   // Delete confirmation functions
   function openDeleteConfirm(id: number) {
@@ -263,7 +264,7 @@ export default function TasksPage() {
     setShowDeleteConfirm(true);
   }
 
-  async function handleDelete() {
+  const handleDelete = useCallback(async () => {
     if (!deleteTargetId) return;
     try {
       await apiFetch(`/tasks/${deleteTargetId}/`, { method: "DELETE" });
@@ -274,7 +275,7 @@ export default function TasksPage() {
       console.error("Delete failed", err);
       alert("Erreur lors de la suppression de la tâche");
     }
-  }
+  }, [deleteTargetId, loadAll]);
 
   async function approveTask(task: AgentTask) {
     await apiFetch(`/tasks/${task.id}/`, {
@@ -324,7 +325,7 @@ export default function TasksPage() {
   };
 
   const filteredTasks = useMemo(() => {
-    let result = [...tasks];
+    let result = Array.isArray(tasks) ? [...tasks] : [];
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(t => t.title.toLowerCase().includes(q) || t.prompt.toLowerCase().includes(q));
@@ -341,13 +342,28 @@ export default function TasksPage() {
     <div className="p-8">
       <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-2xl">
         <h2 className="text-red-500 font-mono text-sm uppercase tracking-widest mb-4">Erreur de connexion</h2>
-        <pre className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed">{error}</pre>
-        <button
-          onClick={() => { setLoading(true); loadAll(); }}
-          className="mt-4 btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-        >
-          Réessayer
-        </button>
+        <p className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed mb-4">
+          Impossible de se connecter au backend. Vérifiez que le serveur est démarré et accessible.
+        </p>
+        {error && (
+          <div className="bg-red-500/20 border-l-2 border-red-500/40 pl-3 pr-4 my-4 text-red-400 text-xs font-mono whitespace-pre-wrap">
+            Détail technique : {error}
+          </div>
+        )}
+        <div className="flex justify-end pt-4">
+          <button
+            onClick={() => { setLoading(true); loadAll(); }}
+            className="btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+          >
+            Réessayer
+          </button>
+          <button
+            onClick={() => setError(null)}
+            className="ml-4 btn border-transparent text-[#888] hover:bg-[#888]/20 hover:text-white transition-all"
+          >
+            Ignorer
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -30,8 +30,8 @@ export default function SettingsPage() {
 
   async function loadCredentials() {
     try {
-      const data = await apiGet<Credential[]>("/credentials/");
-      setCredentials(data);
+      const data = await apiGet<any>("/credentials/");
+      setCredentials(Array.isArray(data) ? data : (data?.results || []));
     } catch (err) {
       console.error("Failed to load credentials", err);
     } finally {

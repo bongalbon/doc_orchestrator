@@ -33,18 +33,28 @@ export default function Dashboard() {
   async function loadData() {
     try {
       const [agentData, taskData, activityData] = await Promise.all([
-        apiGet<Agent[]>("/agents/"),
-        apiGet<AgentTask[]>("/tasks/"),
+        apiGet<any>("/agents/"),
+        apiGet<any>("/tasks/"),
         apiGet<ActivityResponse>("/tasks/activity/"),
       ]);
-      setAgents(agentData);
-      setTasks(taskData);
-      setActivity(activityData);
+
+      // Handle both direct array and paginated response { results: [] }
+      setAgents(Array.isArray(agentData) ? agentData : (agentData?.results || []));
+      setTasks(Array.isArray(taskData) ? taskData : (taskData?.results || []));
+      setActivity(activityResData(activityData));
     } catch (err) {
       console.error("Failed to load dashboard data", err);
     } finally {
       setLoading(false);
     }
+  }
+
+  function activityResData(data: any): ActivityResponse {
+    if (!data) return { running_tasks: [], active_agents: [] };
+    return {
+      running_tasks: Array.isArray(data.running_tasks) ? data.running_tasks : [],
+      active_agents: Array.isArray(data.active_agents) ? data.active_agents : []
+    };
   }
 
   useEffect(() => {
@@ -55,13 +65,17 @@ export default function Dashboard() {
   }, []);
 
   const stats = useMemo(() => {
+    const safeTasks = Array.isArray(tasks) ? tasks : [];
+    const safeAgents = Array.isArray(agents) ? agents : [];
+    const safeActiveAgents = Array.isArray(activity.active_agents) ? activity.active_agents : [];
+
     return {
-      total: tasks.length,
-      done: tasks.filter(t => t.status === "done").length,
-      running: tasks.filter(t => t.status === "running" || t.status === "queued").length,
-      failed: tasks.filter(t => t.status === "failed").length,
-      agentsCount: agents.length,
-      activeAgentsCount: activity.active_agents.length
+      total: safeTasks.length,
+      done: safeTasks.filter(t => t?.status === "done").length,
+      running: safeTasks.filter(t => t?.status === "running" || t?.status === "queued").length,
+      failed: safeTasks.filter(t => t?.status === "failed").length,
+      agentsCount: safeAgents.length,
+      activeAgentsCount: safeActiveAgents.length
     };
   }, [tasks, agents, activity]);
 

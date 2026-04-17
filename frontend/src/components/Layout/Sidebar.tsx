@@ -23,12 +23,19 @@ export default function Sidebar() {
 
   const loadActivity = async () => {
     try {
-      const data = await apiGet<ActivityResponse>("/tasks/activity/");
-      setActivity(data);
+      const data = await apiGet<any>("/tasks/activity/");
+      
+      // Ensure data structure is safe
+      const safeData: ActivityResponse = {
+        running_tasks: Array.isArray(data?.running_tasks) ? data.running_tasks : (data?.results || []),
+        active_agents: Array.isArray(data?.active_agents) ? data.active_agents : []
+      };
+      
+      setActivity(safeData);
     } catch (err: any) {
       // Silently fail for network errors - don't spam console
-      if (err?.message?.includes("Network error")) {
-        // Backend not available - this is expected during startup
+      const msg = err?.message || "";
+      if (msg.includes("Network error") || msg.includes("Unable to connect")) {
         return;
       }
       console.error("Activity load failed", err);

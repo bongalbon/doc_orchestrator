@@ -20,7 +20,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from agents.views import AgentViewSet
-from orchestrator_backend.auth_views import audit_logs, login, register, set_user_role, users_roles
+from orchestrator_backend.auth_views import audit_logs, health_check, login, register, set_user_role, users_roles
 from tasking.views import AgentTaskViewSet, WorkflowViewSet, NotificationViewSet, CredentialViewSet
 
 router = DefaultRouter()
@@ -39,4 +39,5 @@ urlpatterns = [
     path("api/admin/users/", users_roles),
     path("api/admin/users/<int:user_id>/role/", set_user_role),
     path("api/admin/audit/", audit_logs),
+    path("api/health/", health_check, name="health_check"),
 ]

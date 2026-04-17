@@ -78,8 +78,6 @@ export async function apiFetch<T>(
   } catch (err) {
     // Handle network/TypeError specifically
     if (err instanceof TypeError && err.message.includes("fetch")) {
-      console.error(`[API] Network error for ${method} ${path}:`, err.message);
-
       // Retry logic for network errors
       if (retries > 0) {
         console.log(`[API] Retrying ${method} ${path} (${retries} attempts left)...`);

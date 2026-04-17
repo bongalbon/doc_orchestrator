@@ -30,8 +30,8 @@ export default function AgentsPage() {
 
   async function loadAgents() {
     try {
-      const data = await apiGet<Agent[]>("/agents/");
-      setAgents(data);
+      const data = await apiGet<any>("/agents/");
+      setAgents(Array.isArray(data) ? data : (data?.results || []));
     } catch (err) {
       console.error("Failed to load agents", err);
     } finally {
@@ -95,7 +95,7 @@ export default function AgentsPage() {
     }
   }
 
-  const primaryAgents = agents.filter(a => a.kind === "primary");
+  const primaryAgents = Array.isArray(agents) ? agents.filter(a => a.kind === "primary") : [];
 
   if (loading) return <div className="p-8 font-mono text-[#ff5c00] animate-pulse">Chargement de la flotte d'agents...</div>;
 

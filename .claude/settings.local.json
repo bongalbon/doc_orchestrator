@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(exit *)",
+      "Bash(python -m py_compile agents/tests.py)",
+      "Bash(python -m py_compile tasking/tests.py)",
+      "Bash(python -m py_compile tasking/tasks.py)",
+      "Bash(python -m py_compile orchestrator_backend/settings.py)",
+      "Bash(find backend *)",
+      "Bash(find *)",
+      "Bash(python -m py_compile orchestrator_backend/auth_views.py)",
+      "Bash(python -m py_compile orchestrator_backend/urls.py)",
+      "Bash(python -c \"import yaml; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(npm install *)"
+    ]
+  }
+}

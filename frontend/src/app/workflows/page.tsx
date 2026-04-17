@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, FormEvent } from "react";
+import React, { useEffect, useMemo, useState, useCallback, FormEvent } from "react";
 import { apiGet, apiPost, apiFetch } from "../../lib/api";
 import WorkflowTimeline from "../../components/workflow/WorkflowTimeline";
 import ReactMarkdown from "react-markdown";
@@ -68,21 +68,40 @@ export default function WorkflowsPage() {
   // Agents for manager selection
   const [agents, setAgents] = useState<{id: number; name: string; kind: string}[]>([]);
 
-  async function loadAgents() {
+  const loadAgents = useCallback(async () => {
     try {
-      const data = await apiGet<{id: number; name: string; kind: string}[]>("/agents/");
-      setAgents(data.filter(a => a.kind === "primary"));
+      const data = await apiGet<any>("/agents/");
+      const agentList = Array.isArray(data) ? data : (data?.results || []);
+      setAgents(agentList.filter((a: any) => a.kind === "primary"));
     } catch (err) {
       console.error("Failed to load agents", err);
     }
-  }
+  }, []);
 
-  function openCancelConfirm(id: number) {
+  const loadWorkflows = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await apiGet<any>("/workflows/");
+      setWorkflows(Array.isArray(data) ? data : (data?.results || []));
+    } catch (err: any) {
+      console.error("Failed to load workflows", err);
+      const msg = err?.message || "";
+      if (msg.includes("Network error") || msg.includes("Unable to connect")) {
+        setError(msg);
+      } else {
+        setError("Impossible de charger les workflows. Vérifiez que le backend est démarré.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const openCancelConfirm = useCallback((id: number) => {
     setCancelTargetId(id);
     setShowCancelConfirm(true);
-  }
+  }, []);
 
-  async function handleCancel() {
+  const handleCancel = useCallback(async () => {
     if (!cancelTargetId) return;
     try {
       await apiPost(`/workflows/${cancelTargetId}/cancel/`, {});
@@ -92,14 +111,14 @@ export default function WorkflowsPage() {
     } catch (err) {
       console.error("Cancel failed", err);
     }
-  }
+  }, [cancelTargetId, loadWorkflows]);
 
-  function openDeleteConfirm(id: number) {
+  const openDeleteConfirm = useCallback((id: number) => {
     setDeleteTargetId(id);
     setShowDeleteConfirm(true);
-  }
+  }, []);
 
-  async function handleDelete() {
+  const handleDelete = useCallback(async () => {
     if (!deleteTargetId) return;
     try {
       await apiFetch(`/workflows/${deleteTargetId}/`, { method: "DELETE" });
@@ -113,9 +132,9 @@ export default function WorkflowsPage() {
       console.error("Delete failed", err);
       alert("Erreur lors de la suppression du workflow");
     }
-  }
+  }, [deleteTargetId, loadWorkflows, selectedWorkflow]);
 
-  async function loadRelaunchModelsForProvider(p: string, isCloud: boolean, cloudUrl?: string) {
+  const loadRelaunchModelsForProvider = useCallback(async (p: string, isCloud: boolean, cloudUrl?: string) => {
     setRelaunchIsLoadingModels(true);
     try {
       let endpoint = `/tasks/provider-models/?provider=${p}`;
@@ -135,9 +154,9 @@ export default function WorkflowsPage() {
     } finally {
       setRelaunchIsLoadingModels(false);
     }
-  }
+  }, [relaunchModel]);
 
-  function openRelaunchModal(workflow: Workflow) {
+  const openRelaunchModal = useCallback((workflow: Workflow) => {
     setRelaunchTitle(workflow.title);
     setRelaunchPrompt(workflow.initial_prompt);
     setRelaunchManagerId("");
@@ -149,9 +168,9 @@ export default function WorkflowsPage() {
     setRelaunchDynamicModels(PROVIDER_MODELS_FALLBACK["gemini"]);
     setShowRelaunchModal(true);
     loadRelaunchModelsForProvider("gemini", false);
-  }
+  }, []);
 
-  async function handleRelaunch(e: FormEvent) {
+  const handleRelaunch = useCallback(async (e: FormEvent) => {
     e.preventDefault();
     if (!selectedWorkflow) return;
 
@@ -179,25 +198,7 @@ export default function WorkflowsPage() {
     } finally {
       setIsRelaunching(false);
     }
-  }
-
-  async function loadWorkflows() {
-    try {
-      setError(null);
-      const data = await apiGet<Workflow[]>("/workflows/");
-      setWorkflows(data);
-    } catch (err: any) {
-      console.error("Failed to load workflows", err);
-      const msg = err?.message || "";
-      if (msg.includes("Network error") || msg.includes("Unable to connect")) {
-        setError(msg);
-      } else {
-        setError("Impossible de charger les workflows. Vérifiez que le backend est démarré.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+  }, [selectedWorkflow, relaunchTitle, relaunchPrompt, relaunchManagerId, relaunchProvider, relaunchModel, relaunchApiKey, relaunchIsOllamaCloud, relaunchOllamaUrl, showRelaunchModal, loadWorkflows]);
 
   useEffect(() => {
     loadWorkflows();
@@ -205,6 +206,21 @@ export default function WorkflowsPage() {
     const interval = setInterval(loadWorkflows, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Filter workflows based on search and status
+  const filteredWorkflows = useMemo(() => {
+    const safeWorkflows = Array.isArray(workflows) ? workflows : [];
+    return safeWorkflows.filter(w => {
+      const matchesSearch = searchQuery.trim() === "" ||
+        w.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.initial_prompt.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        w.manager_agent_name?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      const matchesStatus = statusFilter === "all" || w.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [workflows, searchQuery, statusFilter]);
 
   if (loading && workflows.length === 0) {
     return <div className="p-8 font-mono text-[#ff5c00] animate-pulse">Chargement de l'intelligence collective...</div>;
@@ -214,28 +230,31 @@ export default function WorkflowsPage() {
     <div className="p-8">
       <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-2xl">
         <h2 className="text-red-500 font-mono text-sm uppercase tracking-widest mb-4">Erreur de connexion</h2>
-        <pre className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed">{error}</pre>
-        <button
-          onClick={() => { setLoading(true); loadWorkflows(); }}
-          className="mt-4 btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
-        >
-          Réessayer
-        </button>
+        <p className="text-red-400/80 text-xs whitespace-pre-wrap font-mono leading-relaxed mb-4">
+          Impossible de se connecter au backend. Vérifiez que le serveur est démarré et accessible.
+        </p>
+        {error && (
+          <div className="bg-red-500/20 border-l-2 border-red-500/40 pl-3 pr-4 my-4 text-red-400 text-xs font-mono whitespace-pre-wrap">
+            Détail technique : {error}
+          </div>
+        )}
+        <div className="flex justify-end pt-4">
+          <button
+            onClick={() => { setLoading(true); loadWorkflows(); }}
+            className="mt-4 btn border-red-500/50 text-red-500 hover:bg-red-500 hover:text-white transition-all"
+          >
+            Réessayer
+          </button>
+          <button
+            onClick={() => setError(null)}
+            className="ml-4 btn border-transparent text-[#888] hover:bg-[#888]/20 hover:text-white transition-all"
+          >
+            Ignorer
+          </button>
+        </div>
       </div>
     </div>
   );
-
-  // Filter workflows based on search and status
-  const filteredWorkflows = workflows.filter(w => {
-    const matchesSearch = searchQuery.trim() === "" ||
-      w.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.initial_prompt.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      w.manager_agent_name?.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesStatus = statusFilter === "all" || w.status === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
 
   return (
     <div className="flex-1 flex overflow-hidden bg-[var(--bg-primary)] h-full">

@@ -7,7 +7,7 @@ from tasking.models import AgentTask
 from tasking.realtime import broadcast_activity
 
 
-@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 2})
+@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 2}, time_limit=600)  # 10 minutes pour permettre les réponses LLM longues
 def execute_agent_task(self, task_id: int):
     task = AgentTask.objects.select_related("assigned_agent", "requested_agent").get(id=task_id)
     if task.cancel_requested:
@@ -53,7 +53,7 @@ def execute_agent_task(self, task_id: int):
     return "done"
 
 
-@shared_task(bind=True)
+@shared_task(bind=True, time_limit=120)  # 2 minutes suffisent pour l'orchestration
 def run_workflow_orchestration(self, workflow_id: int):
     from tasking.models import Workflow, Notification
     from tasking.orchestrator import OrchestrationManager

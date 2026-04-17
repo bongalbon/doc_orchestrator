@@ -137,11 +137,39 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
-CORS_ALLOW_ALL_ORIGINS = True
+# Configuration CORS plus sécurisée
+# En développement, autoriser les origines courantes
+# En production, définir des origines spécifiques via CORS_ALLOWED_ORIGINS
+cors_allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_allowed_origins.split(",") if origin.strip()]
+
+# Pour le développement, si aucune origine spécifique n'est définie, autoriser localhost
+# mais ne jamais autoriser toutes les origines en production
+if not CORS_ALLOWED_ORIGINS and DEBUG:
+    CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 CELERY_TASK_TRACK_STARTED = True
-CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "240"))
+
+# Timeout global de sécurité pour toutes les tâches Celery
+# Peut être overridé au niveau de chaque tâche individuelle
+CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "240"))  # 4 minutes par défaut
+
+# Configuration avancée pour permettre des timeouts spécifiques par tâche
+# Exemple d'utilisation dans une tâche Celery :
+# @shared_task(bind=True, time_limit=600)  # 10 minutes pour cette tâche spécifique
+# def my_long_running_task(self):
+#     # logique de la tâche
+#
+# Pour les tâches qui peuvent nécessiter beaucoup plus de temps,
+# considérez l'utilisation de soft_time_limit pour permettre un nettoyage gracieux :
+# @shared_task(bind=True, soft_time_limit=540, time_limit=600)
+# def another_task(self):
+#     try:
+#         # travail principal
+#     except SoftTimeLimitExceeded:
+#         # nettoyage gracieux
+#         pass
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
@@ -163,3 +191,85 @@ REST_FRAMEWORK = {
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Configuration de logging améliorée
+# En développement, conserver une sortie console lisible
+# En production, envisager d'envoyer les logs vers un système centralisé (ELK, Datadog, etc.)
+import logging
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+        # Format JSON pour les systèmes de logging modernes
+        'json_format': {
+            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
+            'format': '%(asctime)s %(name)s %(levelname)s %(message)s %(pathname)s %(lineno)s %(funcName)s'
+        }
+    },
+    'filters': {
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'filters': ['require_debug_true'],
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple'
+        },
+        'production_console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple'
+        },
+        # Pour la production, on pourrait ajouter un handler qui envoie vers un service externe
+        # Exemple (à décommenter et configurer selon votre infrastructure) :
+        # 'logstash': {
+        #     'level': 'INFO',
+        #     'class': 'logstash.TCPLogstashHandler',
+        #     'host': 'your-logstash-server.example.com',
+        #     'port': 5000,
+        #     'version': 1,
+        #     'message_type': 'logstash',
+        #     'f tags': ['docorchestrator'],
+        #     'f version': 1,
+        # },
+    },
+    'root': {
+        'handlers': ['console'] if DEBUG else ['production_console'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console'] if DEBUG else ['production_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'tasking': {
+            'handlers': ['console'] if DEBUG else ['production_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'agents': {
+            'handlers': ['console'] if DEBUG else ['production_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Logger spécifique pour les tâches Celery
+        'celery': {
+            'handlers': ['console'] if DEBUG else ['production_console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    }
+}
