@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiFetch } from "../../lib/api";
 import WorkflowTimeline from "../../components/workflow/WorkflowTimeline";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useActivityWebSocket } from "../../lib/useWebSocket";
 
 type Step = {
   id: number;
@@ -30,6 +31,34 @@ export default function WorkflowsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
+
+  const { lastEvent } = useActivityWebSocket();
+
+  // Listen for real-time updates
+  useEffect(() => {
+    if (!lastEvent) return;
+
+    const eventsToRefresh = [
+      "step_created", 
+      "workflow_completed", 
+      "workflow_cancelled", 
+      "workflow_failed",
+      "task_running",
+      "task_done",
+      "task_failed"
+    ];
+
+    if (eventsToRefresh.includes(lastEvent.event)) {
+      loadWorkflows();
+      
+      // If the currently viewed workflow is updated, fetch its full details including steps
+      if (selectedWorkflow && lastEvent.workflow_id === selectedWorkflow.id) {
+        apiGet<Workflow>(`/workflows/${selectedWorkflow.id}/`).then(updated => {
+          setSelectedWorkflow(updated);
+        }).catch(err => console.error("Failed to refresh selected workflow", err));
+      }
+    }
+  }, [lastEvent, selectedWorkflow]);
 
   // Cancel confirmation modal state
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);

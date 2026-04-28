@@ -191,16 +191,10 @@ class AgentTaskViewSet(
             return Response(
                 {
                     "models": [
-                        "gemini-3.1-pro",
-                        "gemini-3.0-flash",
                         "gemini-2.5-pro",
                         "gemini-2.5-flash",
-                        "gemini-2.5-flash-lite",
                         "gemini-2.0-flash",
                         "gemini-2.0-flash-lite-preview-02-05",
-                        "gemini-1.5-pro",
-                        "gemini-1.5-flash",
-                        "gemini-1.5-flash-8b",
                     ]
                 }
             )
@@ -310,7 +304,7 @@ class WorkflowViewSet(viewsets.ModelViewSet):
             manager_agent_id=payload.get("manager_agent_id"),
             user=request.user,
             provider=payload.get("provider", "gemini"),
-            model_name=payload.get("model_name", "gemini-2.0-flash"),
+            model_name=payload.get("model_name", "gemini-2.5-pro"),
             ollama_url=payload.get("ollama_url", ""),
         )
         return Response(

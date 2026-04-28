@@ -81,8 +81,8 @@ class AgentTaskSerializer(serializers.ModelSerializer):
 
 
 class TaskCreateSerializer(serializers.Serializer):
-    title = serializers.CharField(max_length=180)
-    prompt = serializers.CharField()
+    title = serializers.CharField(max_length=180, min_length=3)
+    prompt = serializers.CharField(min_length=10)
     provider = serializers.ChoiceField(
         choices=["ollama", "openai", "gemini", "grok", "anthropic"],
         required=False,
@@ -93,6 +93,12 @@ class TaskCreateSerializer(serializers.Serializer):
     ollama_url = serializers.CharField(required=False, allow_blank=True, default="", allow_null=True)
     requested_agent_id = serializers.IntegerField(required=False, allow_null=True)
     timeout_seconds = serializers.IntegerField(required=False, min_value=10, max_value=3600, default=180)
+
+    def validate_prompt(self, value):
+        # Protection basique contre les prompts trop courts ou suspects
+        if len(value.strip()) < 10:
+            raise serializers.ValidationError("Le prompt est trop court.")
+        return value
 
 
 class WorkflowStepSerializer(serializers.ModelSerializer):
@@ -135,8 +141,8 @@ class NotificationSerializer(serializers.ModelSerializer):
 
 
 class WorkflowCreateSerializer(serializers.Serializer):
-    title = serializers.CharField(max_length=180)
-    prompt = serializers.CharField()
+    title = serializers.CharField(max_length=180, min_length=3)
+    prompt = serializers.CharField(min_length=10)
     manager_agent_id = serializers.IntegerField(required=False, allow_null=True)
     provider = serializers.ChoiceField(
         choices=["ollama", "openai", "gemini", "grok", "anthropic"],
@@ -146,3 +152,8 @@ class WorkflowCreateSerializer(serializers.Serializer):
     model_name = serializers.CharField(required=False, allow_blank=True, default="")
     api_key = serializers.CharField(required=False, allow_blank=True, default="", write_only=True)
     ollama_url = serializers.CharField(required=False, allow_blank=True, default="", allow_null=True)
+
+    def validate_prompt(self, value):
+        if len(value.strip()) < 10:
+            raise serializers.ValidationError("Le prompt initial est trop court.")
+        return value

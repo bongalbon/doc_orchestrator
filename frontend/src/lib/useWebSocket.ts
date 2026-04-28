@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { WS_BASE } from "./api";
 
+export type WebSocketEvent = {
+  event: string;
+  workflow_id?: number;
+  task_id?: number;
+  step_id?: number;
+  step_type?: string;
+  agent_name?: string;
+  [key: string]: any;
+};
+
 type WebSocketMessage = {
   type: "snapshot" | "event";
   running_tasks?: Array<{
@@ -11,14 +21,14 @@ type WebSocketMessage = {
     status: string;
   }>;
   active_agents?: string[];
-  payload?: Record<string, unknown>;
+  payload?: WebSocketEvent;
 };
 
 type UseWebSocketReturn = {
   isConnected: boolean;
   runningTasks: WebSocketMessage["running_tasks"];
   activeAgents: WebSocketMessage["active_agents"];
-  lastEvent: WebSocketMessage["payload"] | null;
+  lastEvent: WebSocketEvent | null;
   refresh: () => void;
 };
 
@@ -27,7 +37,7 @@ export function useActivityWebSocket(): UseWebSocketReturn {
   const [isConnected, setIsConnected] = useState(false);
   const [runningTasks, setRunningTasks] = useState<WebSocketMessage["running_tasks"]>([]);
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
-  const [lastEvent, setLastEvent] = useState<WebSocketMessage["payload"] | null>(null);
+  const [lastEvent, setLastEvent] = useState<WebSocketEvent | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const connect = useCallback(() => {
@@ -38,6 +48,7 @@ export function useActivityWebSocket(): UseWebSocketReturn {
 
     ws.onopen = () => {
       setIsConnected(true);
+      console.log("[WS] Connected to activity stream");
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -46,10 +57,12 @@ export function useActivityWebSocket(): UseWebSocketReturn {
 
     ws.onclose = () => {
       setIsConnected(false);
+      console.log("[WS] Disconnected, reconnecting in 3s...");
       reconnectTimeoutRef.current = setTimeout(connect, 3000);
     };
 
-    ws.onerror = () => {
+    ws.onerror = (err) => {
+      console.error("[WS] Error", err);
       setIsConnected(false);
     };
 

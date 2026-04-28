@@ -166,4 +166,8 @@ class ProviderCredential(models.Model):
 
     def get_key(self) -> str:
         from .utils import KeyEncryption
-        return KeyEncryption.decrypt(self.api_key_encrypted)
+        decrypted = KeyEncryption.decrypt(self.api_key_encrypted)
+        # Return None if decryption failed instead of error string
+        if decrypted == "ERROR_DECRYPTION_FAILED":
+            return None
+        return decrypted
