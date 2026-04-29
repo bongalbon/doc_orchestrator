@@ -39,12 +39,19 @@ export function useActivityWebSocket(): UseWebSocketReturn {
   const [activeAgents, setActiveAgents] = useState<string[]>([]);
   const [lastEvent, setLastEvent] = useState<WebSocketEvent | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const intentionalDisconnectRef = useRef(false);
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
     const wsUrl = `${WS_BASE}/ws/activity/`;
-    const ws = new WebSocket(wsUrl);
+    
+    // Add auth token to WebSocket URL for authentication
+    const access = typeof window !== "undefined" ? window.localStorage.getItem("jwtAccess") : null;
+    const token = typeof window !== "undefined" ? window.localStorage.getItem("authToken") : null;
+    const authParam = access ? `?access_token=${access}` : (token ? `?token=${token}` : "");
+    
+    const ws = new WebSocket(wsUrl + authParam);
 
     ws.onopen = () => {
       setIsConnected(true);
@@ -55,14 +62,22 @@ export function useActivityWebSocket(): UseWebSocketReturn {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       setIsConnected(false);
-      console.log("[WS] Disconnected, reconnecting in 3s...");
-      reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      // Only attempt reconnection if this was not an intentional disconnect (cleanup)
+      if (!intentionalDisconnectRef.current) {
+        console.log(`[WS] Disconnected (code: ${event.code}), reconnecting in 3s...`);
+        reconnectTimeoutRef.current = setTimeout(connect, 3000);
+      }
     };
 
     ws.onerror = (err) => {
-      console.error("[WS] Error", err);
+      // Only log error if not an intentional disconnect
+      if (!intentionalDisconnectRef.current) {
+        // Check if it's a connection refused error (server not ready yet)
+        const wsUrl = (err.target as WebSocket)?.url || '';
+        console.warn(`[WS] Connection error to ${wsUrl}, will retry...`);
+      }
       setIsConnected(false);
     };
 
@@ -89,12 +104,19 @@ export function useActivityWebSocket(): UseWebSocketReturn {
   }, []);
 
   useEffect(() => {
+    intentionalDisconnectRef.current = false;
     connect();
     return () => {
+      // Mark as intentional disconnect to prevent reconnection and error spam
+      intentionalDisconnectRef.current = true;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
-      wsRef.current?.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [connect]);
 
