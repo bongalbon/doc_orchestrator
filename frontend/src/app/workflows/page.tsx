@@ -72,6 +72,12 @@ export default function WorkflowsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // Approval/Reject modal state
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [approvalFeedback, setApprovalFeedback] = useState("");
+  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [approvalAction, setApprovalAction] = useState<"approve" | "reject" | null>(null);
+
   // Relaunch modal state - all workflow creation fields
   const [showRelaunchModal, setShowRelaunchModal] = useState(false);
   const [relaunchTitle, setRelaunchTitle] = useState("");
@@ -162,6 +168,56 @@ export default function WorkflowsPage() {
       alert("Erreur lors de la suppression du workflow");
     }
   }, [deleteTargetId, loadWorkflows, selectedWorkflow]);
+
+  const openApprovalModal = useCallback((action: "approve" | "reject") => {
+    setApprovalAction(action);
+    setApprovalFeedback("");
+    setShowApprovalModal(true);
+  }, []);
+
+  const handleApprove = useCallback(async () => {
+    if (!selectedWorkflow) return;
+    setIsSubmittingApproval(true);
+    try {
+      await apiPost(`/workflows/${selectedWorkflow.id}/approve/`, {
+        feedback: approvalFeedback
+      });
+      setShowApprovalModal(false);
+      setApprovalFeedback("");
+      await loadWorkflows();
+      if (selectedWorkflow) {
+        const updated = await apiGet<Workflow>(`/workflows/${selectedWorkflow.id}/`);
+        setSelectedWorkflow(updated);
+      }
+    } catch (err) {
+      console.error("Approval failed", err);
+      alert("Erreur lors de l'approbation du workflow");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  }, [selectedWorkflow, approvalFeedback, loadWorkflows]);
+
+  const handleReject = useCallback(async () => {
+    if (!selectedWorkflow) return;
+    setIsSubmittingApproval(true);
+    try {
+      await apiPost(`/workflows/${selectedWorkflow.id}/reject/`, {
+        feedback: approvalFeedback
+      });
+      setShowApprovalModal(false);
+      setApprovalFeedback("");
+      await loadWorkflows();
+      if (selectedWorkflow) {
+        const updated = await apiGet<Workflow>(`/workflows/${selectedWorkflow.id}/`);
+        setSelectedWorkflow(updated);
+      }
+    } catch (err) {
+      console.error("Reject failed", err);
+      alert("Erreur lors du rejet du workflow");
+    } finally {
+      setIsSubmittingApproval(false);
+    }
+  }, [selectedWorkflow, approvalFeedback, loadWorkflows]);
 
   const loadRelaunchModelsForProvider = useCallback(async (p: string, isCloud: boolean, cloudUrl?: string) => {
     setRelaunchIsLoadingModels(true);
@@ -378,8 +434,24 @@ export default function WorkflowsPage() {
                   <span className="text-lg font-serif text-[#ff5c00]">{selectedWorkflow.status}</span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {['thinking', 'delegating', 'reviewing', 'awaiting_approval'].includes(selectedWorkflow.status) && (
-                    <button 
+                  {selectedWorkflow.status === 'awaiting_approval' && (
+                    <>
+                      <button
+                        onClick={() => openApprovalModal("approve")}
+                        className="text-[10px] font-mono text-[#10b981] border border-[#10b981]/30 px-3 py-1 rounded hover:bg-[#10b981] hover:text-white transition-all uppercase tracking-widest"
+                      >
+                        ✅ Approuver & Continuer
+                      </button>
+                      <button
+                        onClick={() => openApprovalModal("reject")}
+                        className="text-[10px] font-mono text-[#ff5c00] border border-[#ff5c00]/30 px-3 py-1 rounded hover:bg-[#ff5c00] hover:text-white transition-all uppercase tracking-widest"
+                      >
+                        🔄 Rejeter & Relancer
+                      </button>
+                    </>
+                  )}
+                  {['thinking', 'delegating', 'reviewing'].includes(selectedWorkflow.status) && (
+                    <button
                       onClick={() => openCancelConfirm(selectedWorkflow.id)}
                       className="text-[10px] font-mono text-red-500 border border-red-500/30 px-3 py-1 rounded hover:bg-red-500 hover:text-white transition-all uppercase tracking-widest"
                     >
@@ -431,6 +503,55 @@ export default function WorkflowsPage() {
           </div>
         )}
       </div>
+
+      {/* Approval/Reject Modal */}
+      {showApprovalModal && selectedWorkflow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className="w-full max-w-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl overflow-hidden shadow-2xl">
+            <div className="p-4 border-b border-[var(--border-color)] bg-black/20 flex justify-between items-center">
+              <h2 className="font-serif text-xl">
+                {approvalAction === "approve" ? "✅ Approuver le livrable" : "🔄 Rejeter et relancer"}
+              </h2>
+              <button onClick={() => setShowApprovalModal(false)} className="text-[#888] hover:text-white">✕</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-[#888]">
+                {approvalAction === "approve"
+                  ? "Vous pouvez ajouter des informations complémentaires ou valider directement :"
+                  : "Expliquez ce qui doit être corrigé ou amélioré :"}
+              </p>
+              <textarea
+                className="input w-full h-32 resize-none text-sm"
+                value={approvalFeedback}
+                onChange={(e) => setApprovalFeedback(e.target.value)}
+                placeholder={approvalAction === "approve"
+                  ? "Informations complémentaires (optionnel)..."
+                  : "Votre feedback pour améliorer le résultat..."
+                }
+              />
+              <div className="pt-4 flex gap-3">
+                <button
+                  onClick={() => setShowApprovalModal(false)}
+                  className="btn flex-1"
+                  disabled={isSubmittingApproval}
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={approvalAction === "approve" ? handleApprove : handleReject}
+                  className={`btn flex-1 ${approvalAction === "approve" ? "bg-[#10b981] hover:bg-[#10b981]/80" : "primary"}`}
+                  disabled={isSubmittingApproval || (approvalAction === "reject" && !approvalFeedback.trim())}
+                >
+                  {isSubmittingApproval
+                    ? "Envoi..."
+                    : (approvalAction === "approve" ? "Approuver ✅" : "Rejeter & Relancer 🔄")
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cancel Confirmation Modal - Warning Style */}
       {showCancelConfirm && (

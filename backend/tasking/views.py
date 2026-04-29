@@ -314,13 +314,27 @@ class WorkflowViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="approve")
     def approve(self, request, pk=None):
         workflow = self.get_object()
+        feedback = request.data.get("feedback", "").strip()
+
         notification = workflow.notifications.filter(status="pending").first()
         if notification:
             notification.status = "approved"
+            notification.user_feedback = feedback
             notification.save()
-        workflow.status = "completed"
-        workflow.save()
-        return Response({"status": "completed"})
+
+        # Append user feedback to the workflow context and restart orchestration
+        if feedback:
+            workflow.initial_prompt = workflow.initial_prompt + f"\n\n[FEEDBACK UTILISATEUR]: {feedback}"
+            workflow.save(update_fields=["initial_prompt", "updated_at"])
+
+        # Reset workflow to thinking status and restart orchestration
+        workflow.status = "thinking"
+        workflow.save(update_fields=["status", "updated_at"])
+
+        from tasking.tasks import run_workflow_orchestration
+        run_workflow_orchestration.apply_async(args=[workflow.id])
+
+        return Response({"status": "thinking", "message": "Workflow restarted with user feedback"})
 
     @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request, pk=None):
