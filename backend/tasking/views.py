@@ -46,6 +46,7 @@ class AgentTaskViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     serializer_class = AgentTaskSerializer
@@ -158,6 +159,72 @@ class AgentTaskViewSet(
             metadata={"job_id": job.id},
         )
         return Response({"ok": True})
+
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        task = self.get_object()
+        feedback = request.data.get("feedback", "").strip()
+
+        if task.status != "awaiting_approval":
+            return Response(
+                {"detail": "Task is not awaiting approval."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task.user_feedback = feedback
+        task.is_approved = True
+        task.status = "queued"
+        task.save(update_fields=["user_feedback", "is_approved", "status", "updated_at"])
+
+        if feedback:
+            task.prompt += f"\n\n[FEEDBACK UTILISATEUR]: {feedback}"
+            task.save(update_fields=["prompt", "updated_at"])
+
+        job = execute_agent_task.apply_async(
+            args=[task.id],
+            time_limit=task.timeout_seconds,
+            soft_time_limit=max(10, task.timeout_seconds - 5),
+        )
+        task.celery_task_id = job.id or ""
+        task.save(update_fields=["celery_task_id", "updated_at"])
+
+        AuditLog.objects.create(
+            action="task_approved",
+            actor=request.user,
+            task=task,
+            metadata={"feedback": feedback},
+        )
+        broadcast_activity({"event": "task_approved", "task_id": task.id})
+
+        return Response({"status": "queued", "message": "Task approved and restarted with feedback"})
+
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        task = self.get_object()
+        feedback = request.data.get("feedback", "").strip()
+
+        if task.status != "awaiting_approval":
+            return Response(
+                {"detail": "Task is not awaiting approval."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task.user_feedback = feedback
+        task.is_approved = False
+        task.status = "failed"
+        task.error_message = f"Rejected by user. Feedback: {feedback}" if feedback else "Rejected by user."
+        task.finished_at = timezone.now()
+        task.save(update_fields=["user_feedback", "is_approved", "status", "error_message", "finished_at", "updated_at"])
+
+        AuditLog.objects.create(
+            action="task_rejected",
+            actor=request.user,
+            task=task,
+            metadata={"feedback": feedback},
+        )
+        broadcast_activity({"event": "task_rejected", "task_id": task.id})
+
+        return Response({"status": "failed", "message": "Task rejected with feedback"})
 
     @action(detail=False, methods=["get"], url_path="ollama-models")
     def ollama_models(self, request):

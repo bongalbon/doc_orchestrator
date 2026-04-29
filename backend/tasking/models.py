@@ -8,6 +8,7 @@ class AgentTask(models.Model):
     STATUS_CHOICES = (
         ("queued", "Queued"),
         ("running", "Running"),
+        ("awaiting_approval", "Awaiting Approval"),
         ("done", "Done"),
         ("failed", "Failed"),
         ("cancelled", "Cancelled"),
@@ -34,6 +35,7 @@ class AgentTask(models.Model):
     max_retries = models.PositiveIntegerField(default=2)
     retry_count = models.PositiveIntegerField(default=0)
     cancel_requested = models.BooleanField(default=False)
+    user_feedback = models.TextField(blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

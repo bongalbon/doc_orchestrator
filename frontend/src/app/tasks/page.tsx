@@ -9,7 +9,7 @@ type AgentTask = {
   id: number;
   title: string;
   prompt: string;
-  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  status: "queued" | "running" | "awaiting_approval" | "done" | "failed" | "cancelled";
   assigned_agent_id?: number;
   assigned_agent_name?: string;
   result: string;
@@ -75,6 +75,12 @@ export default function TasksPage() {
   // Delete confirmation modal state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+
+  // Approval/Rejection modal state
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [approvalTask, setApprovalTask] = useState<AgentTask | null>(null);
+  const [approvalFeedback, setApprovalFeedback] = useState("");
+  const [approvalAction, setApprovalAction] = useState<"approve" | "reject" | null>(null);
 
   const PROVIDER_MODELS_FALLBACK: Record<string, string[]> = {
     ollama: ["llama3.3:latest", "llama3.2:latest", "llama3.1:8b"],
@@ -277,14 +283,49 @@ export default function TasksPage() {
     }
   }, [deleteTargetId, loadAll]);
 
-  async function approveTask(task: AgentTask) {
-    await apiFetch(`/tasks/${task.id}/`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_approved: true }),
-    });
-    await loadAll();
+  // Approval/Rejection functions
+  function openApprovalModal(task: AgentTask, action: "approve" | "reject") {
+    setApprovalTask(task);
+    setApprovalAction(action);
+    setApprovalFeedback("");
+    setShowApprovalModal(true);
   }
+
+  const handleApprove = useCallback(async () => {
+    if (!approvalTask) return;
+    setBusy(true);
+    try {
+      await apiPost(`/tasks/${approvalTask.id}/approve/`, { feedback: approvalFeedback });
+      setShowApprovalModal(false);
+      setApprovalTask(null);
+      setApprovalFeedback("");
+      setApprovalAction(null);
+      await loadAll();
+    } catch (err) {
+      console.error("Approve failed", err);
+      alert("Erreur lors de l'approbation de la tâche");
+    } finally {
+      setBusy(false);
+    }
+  }, [approvalTask, approvalFeedback, loadAll]);
+
+  const handleReject = useCallback(async () => {
+    if (!approvalTask) return;
+    setBusy(true);
+    try {
+      await apiPost(`/tasks/${approvalTask.id}/reject/`, { feedback: approvalFeedback });
+      setShowApprovalModal(false);
+      setApprovalTask(null);
+      setApprovalFeedback("");
+      setApprovalAction(null);
+      await loadAll();
+    } catch (err) {
+      console.error("Reject failed", err);
+      alert("Erreur lors du rejet de la tâche");
+    } finally {
+      setBusy(false);
+    }
+  }, [approvalTask, approvalFeedback, loadAll]);
 
   async function saveStudioResult() {
     if (!studioTask) return;
@@ -395,6 +436,7 @@ export default function TasksPage() {
         <select className="bg-[#1a1a1a] border border-[var(--border-color)] text-[10px] uppercase font-mono tracking-widest px-2 py-1 rounded text-white" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
           <option value="all" className="bg-[#1a1a1a] text-white">📋 Tous les Statuts</option>
           <option value="running" className="bg-[#1a1a1a] text-white">⚡ En Cours</option>
+          <option value="awaiting_approval" className="bg-[#1a1a1a] text-[#f59e0b]">⏸️ En Attente Validation</option>
           <option value="done" className="bg-[#1a1a1a] text-[#10b981]">✅ Terminé</option>
           <option value="failed" className="bg-[#1a1a1a] text-red-400">❌ Échec</option>
           <option value="cancelled" className="bg-[#1a1a1a] text-[#888]">🚫 Annulé</option>
@@ -426,8 +468,9 @@ export default function TasksPage() {
                   <span className={`text-[9px] uppercase font-mono px-2 py-0.5 rounded font-bold ${
                     task.status === 'done' ? 'bg-[#10b981]/20 text-[#10b981]' : 
                     task.status === 'failed' ? 'bg-[#ef4444]/20 text-[#ef4444]' : 
+                    task.status === 'awaiting_approval' ? 'bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/50' :
                     'bg-[#ff5c00]/20 text-[#ff5c00] animate-pulse'
-                  }`}>{task.status}</span>
+                  }`}>{task.status === 'awaiting_approval' ? 'En Attente' : task.status}</span>
                   {task.is_approved && <span className="text-[9px] uppercase font-mono px-2 py-0.5 rounded bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30">Approuvé</span>}
                 </div>
                 <h3 className="text-lg font-serif mb-1 group-hover:text-[#ff5c00] transition-colors">{task.title}</h3>
@@ -450,11 +493,27 @@ export default function TasksPage() {
                         ⏹ Annuler
                       </button>
                    )}
-                   {/* Existing Studio and Approve buttons for done tasks */}
+                   {/* Approve/Reject buttons for awaiting_approval tasks */}
+                   {task.status === 'awaiting_approval' && (
+                     <>
+                      <button 
+                        className="btn !py-1 !px-3 text-[10px] border-[#10b981] text-[#10b981] hover:bg-[#10b981] hover:text-white transition-all"
+                        onClick={() => openApprovalModal(task, "approve")}
+                      >
+                        ✅ Approuver
+                      </button>
+                      <button 
+                        className="btn !py-1 !px-3 text-[10px] border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444] hover:text-white transition-all"
+                        onClick={() => openApprovalModal(task, "reject")}
+                      >
+                        ❌ Rejeter
+                      </button>
+                     </>
+                   )}
+                   {/* Existing Studio button for done tasks */}
                    {task.status === 'done' && (
                      <>
                       <button className="btn !py-1 !px-3 text-[10px]" onClick={() => {setStudioTask(task); setStudioContent(task.result);}}>Studio</button>
-                      {!task.is_approved && <button className="btn primary !py-1 !px-3 text-[10px]" onClick={() => approveTask(task)}>Approuver</button>}
                      </>
                    )}
                    {/* Old retry button for failed tasks */}
@@ -781,6 +840,65 @@ export default function TasksPage() {
                 className="flex-1 bg-black hover:bg-gray-900 text-yellow-400 font-bold py-2 px-4 rounded border-2 border-red-500 uppercase text-xs tracking-widest transition-colors"
               >
                 Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Approval/Reject Modal */}
+      {showApprovalModal && approvalTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/80">
+          <div className={`w-full max-w-lg rounded-xl overflow-hidden shadow-2xl border-2 ${
+            approvalAction === 'approve' ? 'bg-[#10b981]/10 border-[#10b981]' : 'bg-[#ef4444]/10 border-[#ef4444]'
+          }`}>
+            <div className="p-6">
+              <h2 className={`font-black text-lg uppercase tracking-wider mb-4 ${
+                approvalAction === 'approve' ? 'text-[#10b981]' : 'text-[#ef4444]'
+              }`}>
+                {approvalAction === 'approve' ? '✅ Approuver la tâche' : '❌ Rejeter la tâche'}
+              </h2>
+              <div className="mb-4">
+                <p className="text-sm text-[#888] mb-2">
+                  <span className="font-mono text-[#ff5c00]">DOC-{approvalTask.id}</span> - {approvalTask.title}
+                </p>
+                <p className="text-xs text-[#666] italic line-clamp-2">“{approvalTask.prompt}”</p>
+              </div>
+              <div className="mb-4">
+                <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-2 block">
+                  {approvalAction === 'approve' ? 'Informations complémentaires / Feedback (optionnel)' : 'Raison du rejet / Feedback'}
+                </label>
+                <textarea
+                  className="input w-full h-24 text-sm"
+                  placeholder={approvalAction === 'approve' ? "Ajoutez des précisions ou des modifications à apporter..." : "Expliquez pourquoi vous rejetez cette tâche..."}
+                  value={approvalFeedback}
+                  onChange={(e) => setApprovalFeedback(e.target.value)}
+                />
+              </div>
+              {approvalTask.result && (
+                <div className="mb-4 p-3 bg-black/30 rounded border border-[var(--border-color)]">
+                  <label className="text-[10px] text-[#888] uppercase tracking-widest font-mono mb-1 block">Résultat actuel</label>
+                  <p className="text-xs text-[#aaa] line-clamp-3 font-mono">{approvalTask.result}</p>
+                </div>
+              )}
+            </div>
+            <div className={`p-4 border-t flex gap-3 ${
+              approvalAction === 'approve' ? 'border-[#10b981]/30 bg-[#10b981]/5' : 'border-[#ef4444]/30 bg-[#ef4444]/5'
+            }`}>
+              <button
+                onClick={() => { setShowApprovalModal(false); setApprovalTask(null); setApprovalFeedback(""); }}
+                className="flex-1 btn"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={approvalAction === 'approve' ? handleApprove : handleReject}
+                className={`flex-1 btn ${approvalAction === 'approve' ? 'primary' : ''} ${
+                  approvalAction === 'reject' ? 'border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444] hover:text-white' : ''
+                }`}
+                disabled={busy}
+              >
+                {busy ? 'Traitement...' : (approvalAction === 'approve' ? '✅ Approuver & Continuer' : '❌ Rejeter')}
               </button>
             </div>
           </div>
