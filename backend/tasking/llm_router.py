@@ -3,7 +3,7 @@ import time
 import logging
 
 from litellm import completion
-from litellm.exceptions import RateLimitError
+from litellm.exceptions import RateLimitError, ServiceUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model
         try:
             response = completion(**kwargs)
             return response["choices"][0]["message"]["content"]
-        except RateLimitError as e:
+        except (RateLimitError, ServiceUnavailableError) as e:
             last_exception = e
             # Extract retry delay from error if available, otherwise use exponential backoff
             retry_delay = 2 ** attempt  # 1s, 2s, 4s
@@ -83,11 +83,12 @@ def run_llm_task(*, prompt: str, system_prompt: str, provider: str | None, model
                 except (ValueError, IndexError):
                     pass
 
+            error_name = "Rate limit" if isinstance(e, RateLimitError) else "Service unavailable"
             if attempt < max_retries - 1:
-                logger.warning(f"Rate limit hit (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay:.1f}s...")
+                logger.warning(f"{error_name} hit (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay:.1f}s...")
                 time.sleep(retry_delay)
             else:
-                logger.error(f"Rate limit hit, max retries ({max_retries}) exceeded")
+                logger.error(f"{error_name} hit, max retries ({max_retries}) exceeded")
                 raise
         except Exception:
             # Re-raise non-rate-limit errors immediately

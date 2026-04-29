@@ -183,17 +183,29 @@ FORMAT DE RÉPONSE :
             prompt = params.get("prompt", "").strip()
             if not name or not prompt: return
 
-            agent, created = Agent.objects.get_or_create(
-                name=name,
-                defaults={
-                    "kind": "sub",
-                    "specialty": specialty,
-                    "system_prompt": prompt,
-                    "parent": self.manager,
-                    "is_recruited": True,
-                }
-            )
-            self.log_step("recruitment", f"Agent recruté : {name} ({specialty})", agent=agent)
+            # Try to get existing agent, update if exists, create if not
+            agent = Agent.objects.filter(name=name).first()
+            if agent:
+                # Update existing agent
+                agent.specialty = specialty
+                agent.system_prompt = prompt
+                agent.parent = self.manager
+                agent.is_recruited = True
+                agent.save()
+                action_msg = f"Agent mis à jour : {name} ({specialty})"
+            else:
+                # Create new agent
+                agent = Agent.objects.create(
+                    name=name,
+                    kind="sub",
+                    specialty=specialty,
+                    system_prompt=prompt,
+                    parent=self.manager,
+                    is_recruited=True,
+                )
+                action_msg = f"Agent recruté : {name} ({specialty})"
+
+            self.log_step("recruitment", action_msg, agent=agent)
         except Exception as e:
             logger.error(f"Error in recruit: {e}")
 
